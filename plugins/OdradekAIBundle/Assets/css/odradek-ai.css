@@ -661,6 +661,106 @@ html, body {
     cursor: not-allowed;
 }
 
+/* ── Inline action drawer ─────────────────────────────────────────────────── */
+#odradek-action-drawer {
+    padding: 10px 12px 10px;
+    background: #161b22;
+    border-top: 1px solid #30363d;
+    border-bottom: 1px solid #1f6feb;
+    animation: drawer-slide-in 0.15s ease;
+}
+
+@keyframes drawer-slide-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+#odradek-action-drawer-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 5px;
+}
+
+#odradek-action-drawer-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #58a6ff;
+    letter-spacing: 0.04em;
+    user-select: none;
+}
+
+#odradek-action-cancel {
+    background: transparent;
+    border: none;
+    color: #6e7681;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    transition: color 0.15s;
+    line-height: 1.4;
+}
+
+#odradek-action-cancel:hover { color: #f85149; }
+
+#odradek-action-drawer-hint {
+    font-size: 11px;
+    color: #8b949e;
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+#odradek-action-drawer-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+#odradek-action-input {
+    flex: 1;
+    background: #0d1117;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    padding: 5px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.15s;
+}
+
+#odradek-action-input:focus { border-color: #1f6feb; }
+#odradek-action-input::placeholder { color: #484f58; }
+
+#odradek-action-input.input-error { border-color: #f85149; }
+
+#odradek-action-run {
+    background: #1f6feb;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 14px;
+    cursor: pointer;
+    font-size: 12px;
+    font-family: inherit;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background 0.15s;
+}
+
+#odradek-action-run:hover:not(:disabled) { background: #388bfd; }
+
+#odradek-action-run:disabled {
+    background: #21262d;
+    color: #484f58;
+    cursor: not-allowed;
+}
+
 /* ── Element highlight overlay ────────────────────────────────────────────── */
 .odradek-highlight-overlay {
     outline: 2px solid #1f6feb !important;

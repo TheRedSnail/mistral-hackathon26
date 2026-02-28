@@ -110,6 +110,23 @@
                 <button class="quick-action-btn" data-action="sentiment"   title="Analyze a contact's sentiment and engagement signals">💬 Contact Sentiment</button>
                 <button class="quick-action-btn" data-action="health"      title="Score a contact's engagement health and churn risk">❤️ Health Score</button>
             </div>
+
+            <!-- ── Inline action drawer (replaces window.prompt popups) ── -->
+            <div id="odradek-action-drawer" hidden>
+                <div id="odradek-action-drawer-top">
+                    <span id="odradek-action-drawer-title">
+                        <span id="odradek-action-drawer-icon"></span>
+                        <span id="odradek-action-drawer-label"></span>
+                    </span>
+                    <button id="odradek-action-cancel" type="button">&#10005; Cancel</button>
+                </div>
+                <p id="odradek-action-drawer-hint"></p>
+                <div id="odradek-action-drawer-row">
+                    <input type="text" id="odradek-action-input" autocomplete="off" spellcheck="false" />
+                    <button id="odradek-action-run" type="button">Run &#8629;</button>
+                </div>
+            </div>
+
             <textarea
                 id="odradek-input"
                 placeholder="Ask the AI to do anything in Mautic… (Enter to send, Shift+Enter for newline)"

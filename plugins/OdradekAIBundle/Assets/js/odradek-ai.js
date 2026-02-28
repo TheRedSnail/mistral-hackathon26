@@ -565,55 +565,128 @@
         return JSON.stringify(result).slice(0, 80);
     }
 
-    // ── Quick-action buttons ─────────────────────────────────────────────────
-    const quickBtns = document.querySelectorAll('.quick-action-btn');
+    // ── Quick-action buttons & inline action drawer ──────────────────────────
+    const quickBtns       = document.querySelectorAll('.quick-action-btn');
+    const quickActionsEl  = document.getElementById('odradek-quick-actions');
+    const actionDrawer    = document.getElementById('odradek-action-drawer');
+    const actionIcon      = document.getElementById('odradek-action-drawer-icon');
+    const actionLabelEl   = document.getElementById('odradek-action-drawer-label');
+    const actionHintEl    = document.getElementById('odradek-action-drawer-hint');
+    const actionInputEl   = document.getElementById('odradek-action-input');
+    const actionRunBtn    = document.getElementById('odradek-action-run');
+    const actionCancelBtn = document.getElementById('odradek-action-cancel');
+
+    // Per-action config: icon, label shown in drawer header, hint text,
+    // input placeholder, whether the value is optional, and the prompt builder.
+    const ACTION_CONFIG = {
+        ethics: {
+            icon:        '🛡',
+            label:       'Ethics Check',
+            hint:        'Enter the email name or ID — or leave blank, then paste the content in chat.',
+            placeholder: 'Email name or ID (optional)…',
+            optional:    true,
+            buildPrompt: (val) => val.trim()
+                ? `Check email "${val.trim()}" for dark patterns and EU AI Act compliance issues`
+                : 'Check the email I\'m about to share for dark patterns and EU AI Act compliance issues'
+        },
+        performance: {
+            icon:        '📊',
+            label:       'Campaign Insights',
+            hint:        'Which campaign would you like AI-powered insights on?',
+            placeholder: 'Campaign name or ID…',
+            buildPrompt: (val) => `Analyze the performance of campaign "${val.trim()}" and give me actionable insights`
+        },
+        journey: {
+            icon:        '🗺',
+            label:       'Plan Journey',
+            hint:        'Describe your campaign goal and the AI will generate a structured email journey.',
+            placeholder: 'e.g. Welcome new subscribers, Re-engage cold leads after 60 days…',
+            buildPrompt: (val) => `Suggest a 3-email journey for: ${val.trim()}`
+        },
+        compliance: {
+            icon:        '📋',
+            label:       'Compliance Audit',
+            hint:        'Which campaign should be audited for EU AI Act + GDPR compliance?',
+            placeholder: 'Campaign name or ID…',
+            buildPrompt: (val) => `Generate a full EU AI Act and GDPR compliance report for campaign "${val.trim()}"`
+        },
+        sentiment: {
+            icon:        '💬',
+            label:       'Contact Sentiment',
+            hint:        'Which contact\'s sentiment and engagement signals should be analyzed?',
+            placeholder: 'Contact name, email address, or ID…',
+            buildPrompt: (val) => `Analyze the sentiment and engagement signals for contact "${val.trim()}"`
+        },
+        health: {
+            icon:        '❤️',
+            label:       'Health Score',
+            hint:        'Which contact should be scored for engagement health and churn risk?',
+            placeholder: 'Contact name, email address, or ID…',
+            buildPrompt: (val) => `Score the engagement health and churn risk of contact "${val.trim()}"`
+        }
+    };
+
+    let currentAction = null;
+
+    function openActionDrawer(action) {
+        const cfg = ACTION_CONFIG[action];
+        if (!cfg) return;
+        currentAction             = action;
+        actionIcon.textContent    = cfg.icon;
+        actionLabelEl.textContent = cfg.label;
+        actionHintEl.textContent  = cfg.hint;
+        actionInputEl.placeholder = cfg.placeholder;
+        actionInputEl.value       = '';
+        actionInputEl.classList.remove('input-error');
+        quickActionsEl.style.display = 'none';
+        actionDrawer.hidden          = false;
+        actionInputEl.focus();
+    }
+
+    function closeActionDrawer() {
+        actionDrawer.hidden          = true;
+        quickActionsEl.style.display = '';
+        currentAction                = null;
+        actionInputEl.value          = '';
+    }
+
+    function submitActionDrawer() {
+        if (!currentAction) return;
+        const cfg = ACTION_CONFIG[currentAction];
+        const val = actionInputEl.value;
+        if (!cfg.optional && !val.trim()) {
+            actionInputEl.classList.add('input-error');
+            actionInputEl.focus();
+            setTimeout(() => actionInputEl.classList.remove('input-error'), 1200);
+            return;
+        }
+        const prompt = cfg.buildPrompt(val);
+        closeActionDrawer();
+        inputEl.value = prompt;
+        sendUserMessage();
+    }
+
+    actionRunBtn.addEventListener('click', submitActionDrawer);
+    actionCancelBtn.addEventListener('click', closeActionDrawer);
+    actionInputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter')  { e.preventDefault(); submitActionDrawer(); }
+        if (e.key === 'Escape') { closeActionDrawer(); }
+    });
 
     quickBtns.forEach(btn => {
         btn.addEventListener('click', () => {
             if (state.busy) return;
-            const action = btn.dataset.action;
-            let prompt = '';
-
-            if (action === 'ethics') {
-                const id = window.prompt('Enter the email ID to check (or leave blank to paste content):');
-                if (id === null) return; // cancelled
-                prompt = id.trim()
-                    ? `Check email #${id.trim()} for dark patterns and EU AI Act compliance issues`
-                    : 'Check the email I\'m about to share for dark patterns and EU AI Act compliance issues';
-            } else if (action === 'performance') {
-                const id = window.prompt('Enter the campaign ID to analyze:');
-                if (!id) return;
-                prompt = `Analyze the performance of campaign #${id.trim()} and give me actionable insights`;
-            } else if (action === 'journey') {
-                const goal = window.prompt('Describe your campaign goal (e.g. "welcome new subscribers", "re-engage cold leads"):');
-                if (!goal) return;
-                prompt = `Suggest a 3-email journey for: ${goal.trim()}`;
-            } else if (action === 'compliance') {
-                const id = window.prompt('Enter the campaign ID to audit for EU AI Act + GDPR compliance:');
-                if (!id) return;
-                prompt = `Generate a full EU AI Act and GDPR compliance report for campaign #${id.trim()}`;
-            } else if (action === 'sentiment') {
-                const id = window.prompt('Enter the contact ID to analyze sentiment for:');
-                if (!id) return;
-                prompt = `Analyze the sentiment and engagement signals for contact #${id.trim()}`;
-            } else if (action === 'health') {
-                const id = window.prompt('Enter the contact ID to score:');
-                if (!id) return;
-                prompt = `Score the engagement health and churn risk of contact #${id.trim()}`;
-            }
-
-            if (prompt) {
-                inputEl.value = prompt;
-                sendUserMessage();
-            }
+            expandAI();
+            openActionDrawer(btn.dataset.action);
         });
     });
 
     // ── Send / chat ──────────────────────────────────────────────────────────
     function setBusy(busy) {
-        state.busy       = busy;
-        inputEl.disabled = busy;
-        sendBtn.disabled = busy;
+        state.busy            = busy;
+        inputEl.disabled      = busy;
+        sendBtn.disabled      = busy;
+        actionRunBtn.disabled = busy;
         quickBtns.forEach(b => { b.disabled = busy; });
     }
 
