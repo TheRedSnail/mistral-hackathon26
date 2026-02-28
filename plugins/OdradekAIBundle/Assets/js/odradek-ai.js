@@ -875,6 +875,13 @@
             hint:        'Describe the landing page you want — goal, audience, key messages, and tone.',
             placeholder: 'e.g. Lead gen page for our new SaaS product targeting marketing teams…',
             buildPrompt: (val) => `Build a landing page for: ${val.trim()}`
+        },
+        form: {
+            icon:        '📋',
+            label:       'Create Form',
+            hint:        'Describe the form you need — type, goal, audience, and fields.',
+            placeholder: 'e.g. Webinar registration form for B2B marketers, lead capture for demo requests…',
+            buildPrompt: (val) => `Create a Mautic form for: ${val.trim()}`
         }
     };
 
