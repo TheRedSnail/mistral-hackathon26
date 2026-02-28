@@ -1,0 +1,35 @@
+{% extends '@MauticCore/Default/content.html.twig' %}
+
+{% block mauticContent %}odradekAi{% endblock %}
+
+{% block headerTitle %}Odradek AI Assistant{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-sm-8 col-sm-offset-2">
+        <div class="panel panel-default mt-md">
+            <div class="panel-heading">
+                <h3 class="panel-title"><i class="ri-robot-2-line"></i> Odradek AI Assistant</h3>
+            </div>
+            <div class="panel-body text-center" style="padding: 40px;">
+                <i class="ri-robot-2-line" style="font-size: 64px; color: #ccc;"></i>
+                <h4 class="mt-md">AI Assistant is not enabled</h4>
+                {% if not enabled %}
+                    <p class="text-muted">The AI assistant has not been enabled yet.</p>
+                {% endif %}
+                {% if not hasKey %}
+                    <p class="text-muted">A Mistral API key has not been configured.</p>
+                {% endif %}
+                <p>
+                    <a href="{{ path('mautic_config_action', {'objectAction': 'edit'}) }}" class="btn btn-primary mt-sm">
+                        <i class="ri-settings-line"></i> Go to Configuration
+                    </a>
+                </p>
+                <p class="text-muted small">
+                    Settings &rarr; Configuration &rarr; <strong>AI Settings</strong> tab
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

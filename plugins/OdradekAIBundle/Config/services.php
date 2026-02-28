@@ -1,0 +1,16 @@
+<?php
+
+declare(strict_types=1);
+
+use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+
+return function (ContainerConfigurator $configurator): void {
+    $services = $configurator->services()
+        ->defaults()
+        ->autowire()
+        ->autoconfigure()
+        ->public();
+
+    $services->load('MauticPlugin\\OdradekAIBundle\\', '../')
+        ->exclude('../{Entity,Tests,Assets,Translations,Migrations,Config,DependencyInjection}');
+};

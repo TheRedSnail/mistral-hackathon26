@@ -1,0 +1,31 @@
+version: '3'
+
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: mautic
+      MYSQL_DATABASE: mautic
+      MYSQL_USER: mautic
+      MYSQL_PASSWORD: mautic
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  mautic:
+    image: mautic/mautic:5-apache
+    ports:
+      - "8080:80"
+    environment:
+      MAUTIC_DB_HOST: db
+      MAUTIC_DB_USER: mautic
+      MAUTIC_DB_PASSWORD: mautic
+      MAUTIC_DB_NAME: mautic
+    volumes:
+      - mautic_data:/var/www/html
+      - ./plugins/OdradekAIBundle:/var/www/html/docroot/plugins/OdradekAIBundle
+    depends_on:
+      - db
+
+volumes:
+  mysql_data:
+  mautic_data:

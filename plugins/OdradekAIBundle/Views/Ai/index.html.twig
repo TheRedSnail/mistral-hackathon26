@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odradek AI — Mautic</title>
+    <link rel="stylesheet" href="{{ assetBase }}/css/odradek-ai.css">
+</head>
+<body>
+<div id="odradek-split">
+
+    <!-- ── Top pane: Mautic iframe ── -->
+    <div id="odradek-mautic-pane">
+        <div id="odradek-iframe-toolbar">
+            <button id="odradek-back" title="Back">&#8592;</button>
+            <button id="odradek-forward" title="Forward">&#8594;</button>
+            <span id="odradek-url-display"></span>
+            <div id="odradek-toolbar-actions">
+                <button id="odradek-select-btn" title="Click to select an element and send it as AI context">&#8853; Select</button>
+                <button id="odradek-capture-btn" title="Send current page context to AI">&#128203; Context</button>
+            </div>
+        </div>
+        <iframe
+            id="odradek-mautic-frame"
+            src="/s/dashboard"
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+        ></iframe>
+    </div>
+
+    <!-- ── Drag divider ── -->
+    <div id="odradek-divider" title="Drag to resize"></div>
+
+    <!-- ── Bottom pane: AI chat ── -->
+    <div id="odradek-ai-pane">
+        <div id="odradek-header">
+            <span class="odradek-logo">&#11041; Odradek AI</span>
+            <span id="odradek-model-badge">{{ model|default('mistral-large-latest') }}</span>
+            <label class="odradek-toggle" title="Plan mode: preview steps before execution">
+                <input type="checkbox" id="odradek-plan-mode">
+                <span>Plan Mode</span>
+            </label>
+            <button id="odradek-clear" title="Clear conversation history">&#10005; Clear</button>
+        </div>
+
+        <div id="odradek-messages"></div>
+
+        <div id="odradek-input-area">
+            <div id="odradek-context-chips"></div>
+            <textarea
+                id="odradek-input"
+                placeholder="Ask the AI to do anything in Mautic… (Enter to send, Shift+Enter for newline)"
+                rows="3"
+                spellcheck="true"
+            ></textarea>
+            <div id="odradek-input-actions">
+                <span id="odradek-status"></span>
+                <button id="odradek-send">Send &#8629;</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    window.ODRADEK_CHAT_URL = {{ chatUrl|json_encode|raw }};
+</script>
+<script src="{{ assetBase }}/js/odradek-ai.js"></script>
+</body>
+</html>
