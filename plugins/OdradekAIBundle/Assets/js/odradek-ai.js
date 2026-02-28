@@ -454,22 +454,47 @@
                 <div class="tool-args">${escHtml(JSON.stringify(extra.args, null, 2))}</div>
                 <div class="tool-result"></div>`;
         } else if (type === 'plan') {
-            const steps = (extra.steps || []).map((s, i) =>
-                `<li>${escHtml(String(s))}</li>`).join('');
+            const steps     = (extra.steps     || []).map(s => `<li>${escHtml(String(s))}</li>`).join('');
+            const questions = extra.questions  || [];
+
+            let qaHtml = '';
+            if (questions.length > 0) {
+                qaHtml = '<div class="plan-questions"><strong>A few questions before I start:</strong><dl>';
+                questions.forEach((item, i) => {
+                    const hint = item.hint ? ` placeholder="${escHtml(item.hint)}"` : '';
+                    qaHtml += `<dt>${escHtml(item.q)}</dt>`;
+                    qaHtml += `<dd><input type="text" class="plan-answer" data-idx="${i}"${hint}></dd>`;
+                });
+                qaHtml += '</dl></div>';
+            }
+
             el.innerHTML = `
                 <div class="plan-title">&#9635; Execution Plan</div>
                 <ol>${steps}</ol>
+                ${qaHtml}
                 <div class="plan-actions">
                     <button class="plan-approve-btn">&#10003; Approve &amp; Execute</button>
                     <button class="plan-cancel-btn">&#10005; Cancel</button>
                 </div>`;
+
             el.querySelector('.plan-approve-btn').addEventListener('click', () => {
+                const answers = [...el.querySelectorAll('.plan-answer')]
+                    .map((inp, i) => ({ q: questions[i]?.q || `Q${i + 1}`, a: inp.value.trim() }))
+                    .filter(a => a.a);
+
                 el.remove();
+
                 if (state.pendingPlanMessages) {
-                    sendMessages(state.pendingPlanMessages, buildContext(), false, true);
+                    let msgs = [...state.pendingPlanMessages];
+                    if (answers.length > 0) {
+                        const answerText = answers.map(a => `${a.q}: ${a.a}`).join('\n');
+                        msgs = [...msgs, { role: 'user', content: `My answers:\n${answerText}` }];
+                    }
+                    sendMessages(msgs, buildContext(), false, true);
                     state.pendingPlanMessages = null;
                 }
             });
+
             el.querySelector('.plan-cancel-btn').addEventListener('click', () => {
                 el.remove();
                 state.pendingPlanMessages = null;
@@ -762,10 +787,9 @@
         const planMode = planModeChk.checked;
         const ctx      = buildContext();
 
-        if (planMode) {
-            // Store messages for later approval
-            state.pendingPlanMessages = [...state.messages];
-        }
+        // Always snapshot messages — backend may auto-trigger plan mode even when
+        // the checkbox is unchecked, and the approve handler needs these messages.
+        state.pendingPlanMessages = [...state.messages];
 
         sendMessages(state.messages, ctx, planMode, false);
     }

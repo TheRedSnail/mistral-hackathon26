@@ -26,6 +26,11 @@ class ChatController extends CommonController
         $approved = $body['approved'] ?? false;
         $planMode = $body['planMode'] ?? false;
 
+        // Auto-trigger plan mode for complex multi-step operations
+        if (!$planMode && !$approved) {
+            $planMode = $this->isComplexOperation($messages);
+        }
+
         $mistral  = $this->mistralClient;
         $executor = $this->toolExecutor;
 
@@ -58,10 +63,16 @@ class ChatController extends CommonController
                 if ($planMode && !$approved) {
                     $planSystemMsg = [
                         'role'    => 'system',
-                        'content' => 'You are a planning assistant. The user wants to perform a task in Mautic. '
+                        'content' => 'You are a planning assistant for a Mautic marketing automation AI. '
+                            . 'The user wants to perform a task. Before any tools are called, produce a plan. '
                             . 'Respond ONLY with a valid JSON object in this exact format, no other text: '
-                            . '{"steps": ["Step 1 description", "Step 2 description", ...]}. '
-                            . 'List 3-6 concrete steps the AI will take to complete the task.',
+                            . '{"steps": ["Step 1", "Step 2", ...], "questions": [{"q": "Question text", "hint": "e.g. suggestion"}]} '
+                            . 'Rules: '
+                            . '(1) steps: 3-6 concrete actions the AI will take (e.g. "Pick Paprika theme", "Create email shell", "Fill 7 content slots with festive copy"). '
+                            . '(2) questions: include ONLY questions whose answer would meaningfully change the plan — e.g. theme preference, whether to generate an image, target audience, tone. '
+                            . 'If the request is unambiguous or has sensible defaults, use an empty array []. '
+                            . '(3) Never ask for information the user already provided. '
+                            . '(4) Keep question text short (under 15 words). hint is optional but useful (e.g. "e.g. Paprika, Brienz, or I\'ll choose").',
                     ];
 
                     $planResponse = $mistral->complete([$planSystemMsg, ...$messages], []);
@@ -72,10 +83,11 @@ class ChatController extends CommonController
                         $planContent = $m[0];
                     }
 
-                    $planData = json_decode($planContent, true);
-                    $steps    = $planData['steps'] ?? ['Could not generate plan. Please try again.'];
+                    $planData  = json_decode($planContent, true);
+                    $steps     = $planData['steps']     ?? ['Could not generate plan. Please try again.'];
+                    $questions = $planData['questions'] ?? [];
 
-                    $emitSse('plan', ['steps' => $steps]);
+                    $emitSse('plan', ['steps' => $steps, 'questions' => $questions]);
                     $emitSse('done', []);
                     return;
                 }
@@ -237,7 +249,7 @@ class ChatController extends CommonController
         $content .= "If the ethics score is below 70 or any critical/high severity issues are found, warn the user and suggest fixes before proceeding. ";
         $content .= "When the user asks about campaign results, performance, or insights, use analyze_campaign_performance. ";
         $content .= "When planning a new campaign sequence or email journey, use suggest_campaign_journey. ";
-        $content .= "When creating a full email, follow this sequence: "
+        $content .= "When creating a full email, follow this sequence WITHOUT stopping mid-workflow to show a draft plan or ask for slot-by-slot approval — execute all steps in one turn: "
                   . "(1) Call list_email_themes and pick a fitting theme. "
                   . "(2) Call create_email with the chosen template and body='' (empty) — the theme provides the structure. "
                   . "(3) Call get_email_components with the new email ID to see all text slots (index + current placeholder). "
@@ -247,7 +259,12 @@ class ChatController extends CommonController
                   . "     or looks like a legal/footer line — leave those unchanged. "
                   . "(5) Call update_email_component once per slot you are filling. "
                   . "(6) Call navigate_mautic with path '/s/emails/edit/{id}' so the user can preview the result. "
-                  . "Always provide HTML as inner content only (headings, paragraphs, links, lists) — never a full HTML document. ";
+                  . "Always provide HTML as inner content only (headings, paragraphs, links, lists) — never a full HTML document. "
+                  . "IMPORTANT: Do NOT pause after step 3 to show a content plan or ask 'Shall I apply these changes?' — just apply them. "
+                  . "The user can request changes after seeing the preview. "
+                  . "WORKFLOW RESUMPTION: If the email was already created in a previous turn (create_email result is visible in conversation history), "
+                  . "do NOT call create_email again under any circumstance — immediately continue from the step that was interrupted "
+                  . "(e.g. if create_email returned #89 but no update_email_component calls were made yet, go straight to update_email_component on #89). ";
         $content .= "When your response requires the user to make a choice or provide an answer before you can proceed, "
                   . "end your message with the marker [ASK]: on its own line, followed immediately by your question or numbered options. "
                   . "Use [ASK]: only when you genuinely cannot continue without user input. "
@@ -258,6 +275,25 @@ class ChatController extends CommonController
         $content .= "When asked about a contact's sentiment, feelings, attitude, or interest signals, use analyze_contact_sentiment. ";
         $content .= "When asked about a contact's health, churn risk, engagement score, or whether they are at risk, use score_contact_health. ";
         $content .= "When creating or editing a segment that includes filters, always call get_segment_filter_fields first to verify available field aliases and operators — never guess field names. ";
+        $content .= "GENERAL WORKFLOW RESUMPTION: Before calling any create_* tool, scan the conversation history for a prior result from that same tool. "
+                  . "If create_contact, create_segment, or create_asset already ran successfully in this conversation, do NOT call them again — use the returned ID and continue from the interrupted step. "
+                  . "Only create a new entity when the user explicitly asks to start over or create a second separate one. ";
+        $content .= "SELF-VERIFICATION: After completing any mutating workflow, always verify your work by calling the appropriate read tool before ending, then report the confirmed state to the user. ";
+        $content .= "Verification rules: ";
+        $content .= "(1) After create_contact or update_contact: call get_contact with the contact ID and confirm the saved name, email, and any changed fields. ";
+        $content .= "(2) After the full email creation workflow (after the last update_email_component call): call get_email_components with the email ID and report how many slots were filled and the email name. ";
+        $content .= "(3) After update_email (metadata update only, not component): call get_email with the email ID and confirm the subject and name were saved. ";
+        $content .= "(4) After create_segment or update_segment: call get_segment with the segment ID and confirm the name and number of filters saved. ";
+        $content .= "(5) After generate_image_asset or update_asset: call get_asset with the asset ID and confirm the title and MIME type. ";
+        $content .= "(6) After delete operations: no read-tool call needed — confirm deletion in your message instead. ";
+        $content .= "(7) Skip verification for client-side-only actions (navigate_mautic, update_grapesjs_component, get_page_info) — no server entity to check. ";
+        $content .= "Format: end your response with a short confirmation: e.g. 'Verified: Contact #42 saved — john@example.com, Acme Corp.' or 'Verified: Email #17 \"Summer Promo\" — 4 slots filled.' ";
+        $content .= "VERIFICATION FAILURE & RETRY: If the verification read-tool returns an error, null, or data that does not match what was just saved (e.g. wrong field value, zero filters when filters were specified, asset not found), do not end the conversation. Instead: ";
+        $content .= "(a) Diagnose: state what went wrong (e.g. 'The segment was saved but filters are missing — this likely means the filter field alias was incorrect.'). ";
+        $content .= "(b) Retry: attempt the operation again with corrected arguments (e.g. call get_segment_filter_fields first if filters were dropped, then call update_segment again). ";
+        $content .= "(c) Re-verify: call the read tool again to confirm the retry succeeded. ";
+        $content .= "(d) If the retry also fails, report the failure clearly and ask the user how to proceed — do not silently end. ";
+        $content .= "Only report 'Verified' when the read-tool result actually confirms the expected state. ";
 
         if (!empty($context['url'])) {
             $title = $context['pageTitle'] ?? '';
@@ -303,5 +339,29 @@ class ChatController extends CommonController
         }
 
         return ['role' => 'system', 'content' => $content];
+    }
+
+    private function isComplexOperation(array $messages): bool
+    {
+        // Check only the last user message for complex-operation keywords
+        foreach (array_reverse($messages) as $msg) {
+            if (($msg['role'] ?? '') !== 'user') {
+                continue;
+            }
+            $text = $msg['content'] ?? '';
+            foreach ([
+                'create.*email', 'make.*email', 'write.*email', 'build.*email',
+                'newsletter', 'christmas', 'campaign',
+                'generate.*image', 'create.*image', 'make.*image',
+                'create.*segment', 'make.*segment', 'build.*segment',
+                'create.*contact', 'add.*contact',
+            ] as $pattern) {
+                if (preg_match('/' . $pattern . '/i', $text)) {
+                    return true;
+                }
+            }
+            break; // only inspect the last user message
+        }
+        return false;
     }
 }

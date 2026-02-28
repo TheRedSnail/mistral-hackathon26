@@ -1203,8 +1203,10 @@ HTML;
 
         // 2. Save to Mautic media/files directory
         $uploadDir = (string) $this->parametersHelper->get('upload_dir');
+        $siteUrl   = rtrim((string) $this->parametersHelper->get('site_url'), '/');
         $filename  = 'ai_' . uniqid('', true) . '.' . $ext;
         $filePath  = $uploadDir . '/' . $filename;
+        $publicUrl = $siteUrl . '/media/files/' . $filename;
 
         if (file_put_contents($filePath, $imageData) === false) {
             return ['success' => false, 'error' => "Failed to write image to disk at {$filePath}."];
@@ -1242,9 +1244,10 @@ HTML;
                 'id'       => $asset->getId(),
                 'title'    => $asset->getTitle(),
                 'filename' => $filename,
+                'url'      => $publicUrl,
                 'mime'     => $asset->getMime(),
             ],
-            'message' => "Image asset \"{$args['title']}\" created with ID #{$asset->getId()} and saved as {$filename}.",
+            'message' => "Image asset \"{$args['title']}\" created with ID #{$asset->getId()} and saved as {$filename}. Public URL: {$publicUrl}",
         ];
     }
 
