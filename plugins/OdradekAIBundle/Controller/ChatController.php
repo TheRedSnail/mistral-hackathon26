@@ -156,6 +156,11 @@ class ChatController extends CommonController
         $content .= "Always use tools to perform actions — never fabricate data. ";
         $content .= "Be concise, action-oriented, and always confirm before deleting anything. ";
         $content .= "When you delete data, ask conversationally first (e.g. \"Shall I delete contact #42?\") and only call delete_contact after the user says yes. ";
+        $content .= "ETHICS GUARDRAIL: Whenever you create an email or the user asks you to review email content, ";
+        $content .= "automatically call analyze_email_ethics on the content before saving — do this proactively without being asked. ";
+        $content .= "If the ethics score is below 70 or any critical/high severity issues are found, warn the user and suggest fixes before proceeding. ";
+        $content .= "When the user asks about campaign results, performance, or insights, use analyze_campaign_performance. ";
+        $content .= "When planning a new campaign sequence or email journey, use suggest_campaign_journey. ";
 
         if (!empty($context['url'])) {
             $title = $context['pageTitle'] ?? '';

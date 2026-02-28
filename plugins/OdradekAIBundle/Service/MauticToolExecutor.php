@@ -18,6 +18,7 @@ class MauticToolExecutor
         private readonly CampaignModel $campaignModel,
         private readonly ListModel     $listModel,
         private readonly ModelFactory  $modelFactory,
+        private readonly MistralClient $mistralClient,
     ) {}
 
     public function execute(string $tool, array $args): array
@@ -42,9 +43,12 @@ class MauticToolExecutor
                 'get_campaign'   => $this->getCampaign($args),
                 'list_segments'  => $this->listSegments($args),
                 'create_segment' => $this->createSegment($args),
-                'list_reports'   => $this->listReports(),
-                'get_report_data' => $this->getReportData($args),
-                default          => ['success' => false, 'error' => "Unknown tool: {$tool}"],
+                'list_reports'              => $this->listReports(),
+                'get_report_data'           => $this->getReportData($args),
+                'analyze_email_ethics'      => $this->analyzeEmailEthics($args),
+                'analyze_campaign_performance' => $this->analyzeCampaignPerformance($args),
+                'suggest_campaign_journey'  => $this->suggestCampaignJourney($args),
+                default                     => ['success' => false, 'error' => "Unknown tool: {$tool}"],
             };
         } catch (\Throwable $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -393,6 +397,150 @@ class MauticToolExecutor
                 'rows'  => $data['data'] ?? [],
                 'total' => $data['totalResults'] ?? 0,
             ],
+        ];
+    }
+
+    // ── Ethics & Intelligence ─────────────────────────────────────────────────
+
+    private function analyzeEmailEthics(array $args): array
+    {
+        $content   = '';
+        $emailName = '';
+        $subject   = '';
+
+        if (!empty($args['email_id'])) {
+            $email = $this->emailModel->getEntity((int) $args['email_id']);
+            if (!$email) {
+                return ['success' => false, 'error' => "Email #{$args['email_id']} not found."];
+            }
+            $content   = strip_tags($email->getCustomHtml() ?: $email->getPlainText() ?: '');
+            $emailName = $email->getName();
+            $subject   = $email->getSubject();
+        } elseif (!empty($args['content'])) {
+            $content = strip_tags($args['content']);
+        } else {
+            return ['success' => false, 'error' => 'Provide either email_id or content.'];
+        }
+
+        if (empty(trim($content))) {
+            return ['success' => false, 'error' => 'Email has no text content to analyze.'];
+        }
+
+        $subjectLine = $subject ? "Subject line: \"{$subject}\"\n" : '';
+        $prompt = "You are an ethical marketing AI auditor. Analyze this marketing email for dark patterns "
+            . "and EU AI Act / GDPR compliance issues.\n\n"
+            . $subjectLine
+            . "Look for:\n"
+            . "1. False urgency (fake deadlines, \"act now\" without real cause)\n"
+            . "2. Scarcity manipulation (unverified \"only X left\" claims)\n"
+            . "3. Guilt-tripping or emotional manipulation\n"
+            . "4. Misleading claims or hidden costs\n"
+            . "5. Overly aggressive or pressure-based CTAs\n"
+            . "6. GDPR concerns (missing unsubscribe option, unclear data use)\n\n"
+            . "Respond ONLY with valid JSON in this exact format:\n"
+            . '{"ethics_score":85,"issues":[{"type":"false_urgency","severity":"medium","excerpt":"...","recommendation":"..."}],"overall_severity":"low","summary":"...","eu_ai_act_compliant":true}'
+            . "\n\nEmail body:\n"
+            . mb_substr($content, 0, 3000);
+
+        $response = $this->mistralClient->complete([
+            ['role' => 'user', 'content' => $prompt],
+        ]);
+
+        $raw = $response['content'] ?? '{}';
+        if (preg_match('/\{.*\}/s', $raw, $m)) {
+            $raw = $m[0];
+        }
+        $analysis = json_decode($raw, true) ?? ['error' => 'Could not parse ethics analysis.'];
+
+        return [
+            'success'    => true,
+            'email_name' => $emailName,
+            'analysis'   => $analysis,
+        ];
+    }
+
+    private function analyzeCampaignPerformance(array $args): array
+    {
+        $campaign = $this->campaignModel->getEntity((int) $args['campaign_id']);
+        if (!$campaign) {
+            return ['success' => false, 'error' => "Campaign #{$args['campaign_id']} not found."];
+        }
+
+        $emailMetrics = [];
+        foreach ($campaign->getEvents() as $event) {
+            if ($event->getType() === 'email.send') {
+                $props   = $event->getProperties();
+                $emailId = $props['email'] ?? null;
+                if ($emailId) {
+                    $email = $this->emailModel->getEntity((int) $emailId);
+                    if ($email) {
+                        $sent   = $email->getSentCount();
+                        $opened = $email->getReadCount();
+                        $emailMetrics[] = [
+                            'name'      => $email->getName(),
+                            'subject'   => $email->getSubject(),
+                            'sent'      => $sent,
+                            'opened'    => $opened,
+                            'open_rate' => $sent > 0 ? round(($opened / $sent) * 100, 1) . '%' : 'N/A',
+                        ];
+                    }
+                }
+            }
+        }
+
+        $campaignData = [
+            'name'        => $campaign->getName(),
+            'published'   => $campaign->isPublished(),
+            'lead_count'  => $campaign->getLeadCount(),
+            'emails'      => $emailMetrics,
+        ];
+
+        $prompt = "You are a marketing analytics expert. Analyze this Mautic campaign data and give actionable insights.\n\n"
+            . 'Campaign data: ' . json_encode($campaignData, JSON_PRETTY_PRINT) . "\n\n"
+            . "Provide:\n"
+            . "1. Overall performance assessment\n"
+            . "2. What is working well\n"
+            . "3. What needs improvement (with specific suggestions)\n"
+            . "4. Recommended next steps\n\n"
+            . "Be specific, data-driven, and concise. Use bullet points.";
+
+        $response = $this->mistralClient->complete([
+            ['role' => 'user', 'content' => $prompt],
+        ]);
+
+        return [
+            'success'  => true,
+            'campaign' => $campaignData,
+            'insights' => $response['content'] ?? 'Could not generate insights.',
+        ];
+    }
+
+    private function suggestCampaignJourney(array $args): array
+    {
+        $goal     = $args['goal'] ?? '';
+        $audience = $args['audience'] ?? 'general subscribers';
+        $count    = min((int) ($args['num_emails'] ?? 3), 6);
+
+        $prompt = "You are an expert email marketing strategist. Design a {$count}-email journey.\n\n"
+            . "Goal: {$goal}\n"
+            . "Audience: {$audience}\n\n"
+            . "Respond ONLY with valid JSON:\n"
+            . '{"journey_name":"...","goal":"...","emails":[{"step":1,"delay":"Immediately","subject":"...","purpose":"...","key_message":"...","cta":"..."}]}'
+            . "\n\nMake subjects compelling, timing realistic, messaging ethical and non-manipulative.";
+
+        $response = $this->mistralClient->complete([
+            ['role' => 'user', 'content' => $prompt],
+        ]);
+
+        $raw = $response['content'] ?? '{}';
+        if (preg_match('/\{.*\}/s', $raw, $m)) {
+            $raw = $m[0];
+        }
+        $journey = json_decode($raw, true) ?? ['error' => 'Could not generate journey plan.'];
+
+        return [
+            'success' => true,
+            'journey' => $journey,
         ];
     }
 }

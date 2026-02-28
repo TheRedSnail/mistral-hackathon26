@@ -6,11 +6,13 @@ namespace MauticPlugin\OdradekAIBundle\Controller;
 
 use Mautic\CoreBundle\Controller\CommonController;
 use Mautic\CoreBundle\Helper\CoreParametersHelper;
+use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class AiController extends CommonController
 {
-    public function indexAction(CoreParametersHelper $params): Response
+    public function indexAction(Request $request, CoreParametersHelper $params): Response
     {
         $enabled = (bool) $params->get('odradek_ai_enabled');
         $apiKey  = (string) $params->get('odradek_ai_api_key');
@@ -29,6 +31,12 @@ class AiController extends CommonController
                     'mauticContent'  => 'odradekAi',
                 ],
             ]);
+        }
+
+        // Mautic's sidebar uses AJAX navigation (XMLHttpRequest). The split-screen
+        // UI needs the full viewport, so redirect the browser to do a real page load.
+        if ($request->isXmlHttpRequest()) {
+            return new JsonResponse(['redirect' => $this->generateUrl('odradek_ai_index')]);
         }
 
         // Return a standalone response (no Mautic chrome) so our split-screen

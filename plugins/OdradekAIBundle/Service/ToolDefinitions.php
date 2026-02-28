@@ -248,6 +248,55 @@ class ToolDefinitions
                 ],
             ],
 
+            // ── Ethics & Intelligence ─────────────────────────────────────────
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'analyze_email_ethics',
+                    'description' => 'Analyze an email for dark patterns, manipulative language, and EU AI Act compliance issues. '
+                        . 'Call this proactively before creating or sending any email. '
+                        . 'Returns an ethics score (0-100), list of issues with severity, and recommendations.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'email_id' => ['type' => 'integer', 'description' => 'Mautic email ID to fetch and analyze.'],
+                            'content'  => ['type' => 'string', 'description' => 'Raw HTML email body to analyze (use before saving).'],
+                        ],
+                        'required' => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'analyze_campaign_performance',
+                    'description' => 'Get AI-powered insights on a campaign\'s performance. Fetches email metrics (sent, open rate) and returns analysis: what is working, what is not, and concrete improvement suggestions.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'campaign_id' => ['type' => 'integer', 'description' => 'The Mautic campaign ID to analyze.'],
+                        ],
+                        'required' => ['campaign_id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'suggest_campaign_journey',
+                    'description' => 'Generate a structured email journey plan for a given marketing goal. Returns a sequence of emails with subjects, timing, purpose, and key messaging strategy.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'goal'       => ['type' => 'string', 'description' => 'The campaign goal, e.g. "welcome new subscribers", "re-engage cold leads", "upsell premium plan".'],
+                            'audience'   => ['type' => 'string', 'description' => 'Target audience description (optional).'],
+                            'num_emails' => ['type' => 'integer', 'description' => 'Number of emails in the sequence (default 3, max 6).'],
+                        ],
+                        'required' => ['goal'],
+                    ],
+                ],
+            ],
+
             // ── Navigation / Page Context ─────────────────────────────────────
             [
                 'type'     => 'function',
