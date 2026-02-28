@@ -46,11 +46,15 @@ class AiController extends CommonController
 
         $csrfToken = $csrfTokenManager->getToken('odradek_ai_chat')->getValue();
 
+        $user = $this->getUser();
+
         $html = $twig->render('@OdradekAI/Ai/index.html.twig', [
             'assetBase'  => '/plugins/OdradekAIBundle/Assets',
             'model'      => $model,
             'chatUrl'    => $this->generateUrl('odradek_ai_chat'),
             'csrfToken'  => $csrfToken,
+            'userName'   => $user ? ($user->getFirstName() ?: $user->getUsername()) : 'User',
+            'apiKeySet'  => !empty($apiKey),
         ]);
 
         return new Response($html, 200, [

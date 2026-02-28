@@ -30,17 +30,26 @@
     const clearBtn     = document.getElementById('odradek-clear');
     const chipsEl      = document.getElementById('odradek-context-chips');
     const planModeChk  = document.getElementById('odradek-plan-mode');
-    const statusEl     = document.getElementById('odradek-status');
+
+    // ── Status bar refs ─────────────────────────────────────────────────────
+    const statusBar    = document.getElementById('odradek-status-bar');
+    const statusPhrase = document.getElementById('odradek-status-phrase');
+    const statusTimer  = document.getElementById('odradek-status-timer');
 
     const CHAT_URL     = window.ODRADEK_CHAT_URL || '/odradek/ai/chat';
 
     // ── State ───────────────────────────────────────────────────────────────
     const state = {
-        messages:    [],   // [{role, content}] sent to backend
-        contextItems: [],  // [{type, label, data}]
-        selectMode:  false,
-        busy:        false,
-        pendingPlanMessages: null, // messages saved when plan shown
+        messages:             [],   // [{role, content}] sent to backend
+        contextItems:         [],   // [{type, label, data}]
+        selectMode:           false,
+        busy:                 false,
+        pendingPlanMessages:  null, // messages saved when plan shown
+        // Exchange card state
+        currentCard:          null, // active .exchange-card DOM node
+        currentActivityEl:    null, // .exchange-activities div
+        currentMainBody:      null, // .msg-body inside .exchange-main
+        currentActivityCount: 0,    // badge count
     };
 
     // ── Expand / collapse AI panel ───────────────────────────────────────────
@@ -422,139 +431,332 @@
         return ctx;
     }
 
-    // ── Empty state ──────────────────────────────────────────────────────────
-    function renderEmptyState() {
-        if (messagesEl.children.length === 0) {
-            const el = document.createElement('div');
-            el.id = 'odradek-empty-state';
-            el.innerHTML = `
-                <div class="empty-state-icon">&#11041;</div>
-                <div class="empty-state-title">Odradek AI</div>
-                <div class="empty-state-sub">Ask anything or use the quick actions below</div>`;
-            messagesEl.appendChild(el);
-        }
+    // ── Welcome screen ───────────────────────────────────────────────────────
+    const ASCII_ART =
+        '  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n' +
+        '  \u2502 ODRADEK \u2502\n' +
+        '  \u2502   AI    \u2502\n' +
+        '  \u2514\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2518\n' +
+        '        \u2502\n' +
+        '   \u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\n' +
+        '     \u25c6   \u25c6\n' +
+        '   \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500';
+
+    function getRecentActivity() {
+        try {
+            const raw = localStorage.getItem('odradek_recent');
+            return raw ? JSON.parse(raw) : [];
+        } catch (_) { return []; }
     }
 
-    function clearEmptyState() {
-        const es = document.getElementById('odradek-empty-state');
-        if (es) es.remove();
+    function addRecentActivity(text) {
+        if (!text || text.length < 3) return;
+        try {
+            let items = getRecentActivity();
+            items = [text, ...items.filter(i => i !== text)].slice(0, 8);
+            localStorage.setItem('odradek_recent', JSON.stringify(items));
+        } catch (_) {}
     }
 
-    renderEmptyState();
+    function showWelcomeScreen() {
+        if (messagesEl.querySelector('.exchange-card')) return; // messages present
+        hideWelcomeScreen();
 
-    // ── Message rendering ────────────────────────────────────────────────────
-    function appendMessage(type, content, extra) {
-        const el = document.createElement('div');
-        el.className = `odradek-msg msg-${type}`;
+        const userName  = window.ODRADEK_USER_NAME  || 'User';
+        const apiKeySet = window.ODRADEK_API_KEY_SET !== false;
+        const model     = window.ODRADEK_MODEL      || 'mistral-large-latest';
+        const recent    = getRecentActivity();
 
-        if (type === 'user') {
-            el.innerHTML = `<div class="msg-label">You</div><div class="msg-body">${escHtml(content)}</div>`;
-        } else if (type === 'ai') {
-            el.innerHTML = `<div class="msg-label">Odradek AI</div><div class="msg-body odradek-cursor"></div>`;
-        } else if (type === 'tool') {
-            el.dataset.toolId = extra.id || '';
-            el.innerHTML = `
-                <div class="tool-header">
-                    <span class="odradek-spinner"></span>
-                    <span>${escHtml(extra.name)}</span>
-                </div>
-                <div class="tool-args">${escHtml(JSON.stringify(extra.args, null, 2))}</div>
-                <div class="tool-result"></div>`;
-        } else if (type === 'plan') {
-            const steps     = (extra.steps     || []).map(s => `<li>${escHtml(String(s))}</li>`).join('');
-            const questions = extra.questions  || [];
-
-            let qaHtml = '';
-            if (questions.length > 0) {
-                qaHtml = '<div class="plan-questions"><strong>A few questions before I start:</strong><dl>';
-                questions.forEach((item, i) => {
-                    const hint = item.hint ? ` placeholder="${escHtml(item.hint)}"` : '';
-                    qaHtml += `<dt>${escHtml(item.q)}</dt>`;
-                    qaHtml += `<dd><input type="text" class="plan-answer" data-idx="${i}"${hint}></dd>`;
-                });
-                qaHtml += '</dl></div>';
-            }
-
-            el.innerHTML = `
-                <div class="plan-title">&#9635; Execution Plan</div>
-                <ol>${steps}</ol>
-                ${qaHtml}
-                <div class="plan-actions">
-                    <button class="plan-approve-btn">&#10003; Approve &amp; Execute</button>
-                    <button class="plan-cancel-btn">&#10005; Cancel</button>
+        let recentHtml = '';
+        if (recent.length > 0) {
+            const items = recent.slice(0, 6).map((q, i) =>
+                `<div class="recent-item" data-idx="${i}" title="${escHtml(q)}">${escHtml(q.slice(0, 70))}</div>`
+            ).join('');
+            recentHtml = `
+                <hr class="welcome-divider">
+                <div>
+                    <div class="welcome-section-title">Recent</div>
+                    <div class="welcome-recent-list">${items}</div>
                 </div>`;
+        }
 
-            el.querySelector('.plan-approve-btn').addEventListener('click', () => {
-                const answers = [...el.querySelectorAll('.plan-answer')]
-                    .map((inp, i) => ({ q: questions[i]?.q || `Q${i + 1}`, a: inp.value.trim() }))
-                    .filter(a => a.a);
+        const el = document.createElement('div');
+        el.id = 'odradek-welcome';
+        el.innerHTML = `
+            <pre class="welcome-ascii">${escHtml(ASCII_ART)}</pre>
+            <div class="welcome-right">
+                <div class="welcome-banner">Welcome back, ${escHtml(userName)}</div>
+                <div class="welcome-meta">
+                    <span>Model: <strong>${escHtml(model)}</strong></span>
+                    <span class="${apiKeySet ? 'key-ok' : 'key-miss'}">${apiKeySet ? '&#10003; API key configured' : '&#10007; API key missing'}</span>
+                </div>
+                <hr class="welcome-divider">
+                <div class="welcome-tips">
+                    <div class="welcome-section-title">Tips</div>
+                    <ul>
+                        <li>Ask me to create, edit, or list any Mautic entity</li>
+                        <li>Use &#8853; Select to pick page elements as context</li>
+                        <li>Use Plan Mode to preview steps before execution</li>
+                        <li>Quick action buttons below for common tasks</li>
+                    </ul>
+                </div>
+                ${recentHtml}
+            </div>`;
 
-                el.remove();
+        messagesEl.appendChild(el);
 
-                if (state.pendingPlanMessages) {
-                    let msgs = [...state.pendingPlanMessages];
-                    if (answers.length > 0) {
-                        const answerText = answers.map(a => `${a.q}: ${a.a}`).join('\n');
-                        msgs = [...msgs, { role: 'user', content: `My answers:\n${answerText}` }];
-                    }
-                    sendMessages(msgs, buildContext(), false, true);
-                    state.pendingPlanMessages = null;
+        // Wire up recent items as clickable
+        el.querySelectorAll('.recent-item').forEach((item) => {
+            item.addEventListener('click', () => {
+                const idx = Number(item.dataset.idx);
+                const q = recent[idx];
+                if (q) {
+                    inputEl.value = q;
+                    inputEl.focus();
                 }
             });
+        });
+    }
 
-            el.querySelector('.plan-cancel-btn').addEventListener('click', () => {
-                el.remove();
-                state.pendingPlanMessages = null;
-                setStatus('');
-                setBusy(false);
-            });
-        } else if (type === 'thinking') {
-            el.className = 'odradek-msg msg-thinking';
-            el.innerHTML = `<div class="thinking-row">
-        <span class="odradek-spinner"></span>
-        <span class="thinking-label">Thinking...</span>
-    </div>`;
-        } else if (type === 'error') {
-            el.innerHTML = `<strong>Error:</strong> ${escHtml(content)}`;
-        }
+    function hideWelcomeScreen() {
+        const ws = document.getElementById('odradek-welcome');
+        if (ws) ws.remove();
+    }
 
-        clearEmptyState();
-        messagesEl.appendChild(el);
+    showWelcomeScreen();
+
+    // ── Exchange card system ─────────────────────────────────────────────────
+
+    function startExchangeCard(userText) {
+        hideWelcomeScreen();
+
+        const card = document.createElement('div');
+        card.className = 'exchange-card';
+
+        // User message
+        const userDiv = document.createElement('div');
+        userDiv.className = 'odradek-msg msg-user';
+        userDiv.innerHTML = `<div class="msg-label">You</div><div class="msg-body">${escHtml(userText)}</div>`;
+
+        // Activities section (collapsed by default)
+        const activitiesDiv = document.createElement('div');
+        activitiesDiv.className = 'exchange-activities';
+        activitiesDiv.innerHTML = `
+            <div class="exchange-activities-header">
+                <span class="exchange-activities-toggle">&#9654;</span>
+                <span>Activities</span>
+                <span class="exchange-activities-badge" style="display:none"></span>
+            </div>
+            <div class="activities-body"></div>`;
+
+        // Main AI response section
+        const mainDiv = document.createElement('div');
+        mainDiv.className = 'exchange-main';
+        mainDiv.innerHTML = `
+            <div class="msg-label">Odradek AI</div>
+            <div class="msg-body odradek-cursor"></div>`;
+
+        card.appendChild(userDiv);
+        card.appendChild(activitiesDiv);
+        card.appendChild(mainDiv);
+        messagesEl.appendChild(card);
         messagesEl.scrollTop = messagesEl.scrollHeight;
-        return el;
+
+        // Update state
+        state.currentCard         = card;
+        state.currentActivityEl   = activitiesDiv;
+        state.currentMainBody     = mainDiv.querySelector('.msg-body');
+        state.currentActivityCount = 0;
+
+        // Toggle expand/collapse on header click
+        activitiesDiv.querySelector('.exchange-activities-header').addEventListener('click', () => {
+            activitiesDiv.classList.toggle('expanded');
+        });
+
+        return card;
     }
 
-    function findToolMsg(id) {
-        return messagesEl.querySelector(`.msg-tool[data-tool-id="${id}"]`);
-    }
+    function addActivityLine(name, id, args) {
+        if (!state.currentActivityEl) return;
+        const body = state.currentActivityEl.querySelector('.activities-body');
+        if (!body) return;
 
-    function updateToolMsg(id, result) {
-        const el = findToolMsg(id);
-        if (!el) return;
+        const escapedId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
 
-        // Remove spinner
-        const spinner = el.querySelector('.odradek-spinner');
-        if (spinner) spinner.remove();
+        const line = document.createElement('div');
+        line.className = 'activity-line';
+        line.dataset.actId = escapedId;
 
-        const header = el.querySelector('.tool-header');
-        if (header) {
-            const icon = document.createElement('span');
-            icon.textContent = result && result.success === false ? '✗' : '✓';
-            icon.style.color  = result && result.success === false ? '#f85149' : '#3fb950';
-            header.prepend(icon);
+        let argsHtml = '';
+        if (args && Object.keys(args).length > 0) {
+            argsHtml = `<div class="tool-detail-args">${escHtml(JSON.stringify(args, null, 2))}</div>`;
         }
 
-        const resultEl = el.querySelector('.tool-result');
-        if (resultEl) {
-            const summary = result ? summarizeResult(result) : 'Done';
-            resultEl.textContent = summary;
-            if (result && result.success === false) resultEl.classList.add('error');
+        line.innerHTML = `
+            <span class="activity-icon-spin">&#9167;</span>
+            <span class="activity-name">${escHtml(name)}</span>
+            <div class="tool-detail" style="display:none">
+                ${argsHtml}
+                <div class="tool-detail-result"></div>
+            </div>`;
+
+        body.appendChild(line);
+
+        // Update badge
+        state.currentActivityCount++;
+        const badge = state.currentActivityEl.querySelector('.exchange-activities-badge');
+        if (badge) {
+            badge.textContent = state.currentActivityCount;
+            badge.style.display = '';
         }
+
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        return line;
     }
 
+    function completeActivityLine(id, ok, result) {
+        if (!state.currentActivityEl) return;
+        const escapedId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const line = state.currentActivityEl.querySelector(`.activity-line[data-act-id="${escapedId}"]`);
+        if (!line) return;
+
+        const spin = line.querySelector('.activity-icon-spin');
+        if (spin) {
+            spin.className = ok ? 'activity-icon-ok' : 'activity-icon-fail';
+            spin.textContent = ok ? '&#10003;' : '&#10007;';
+            spin.innerHTML   = ok ? '&#10003;' : '&#10007;';
+        }
+
+        if (result) {
+            const detail  = line.querySelector('.tool-detail');
+            const resEl   = detail && detail.querySelector('.tool-detail-result');
+            if (resEl) {
+                const summary = summarizeResult(result);
+                resEl.textContent = summary;
+                if (!ok) resEl.classList.add('error');
+            }
+            if (detail) detail.style.display = 'block';
+        }
+
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function updateActivityLineText(id, text) {
+        if (!state.currentActivityEl) return;
+        const escapedId = String(id).replace(/[^a-zA-Z0-9_-]/g, '_');
+        const line = state.currentActivityEl.querySelector(`.activity-line[data-act-id="${escapedId}"]`);
+        if (!line) return;
+        const nameEl = line.querySelector('.activity-name');
+        if (nameEl) nameEl.textContent = text;
+    }
+
+    function appendToMain(text) {
+        if (!state.currentMainBody) return;
+        state.currentMainBody.textContent += text;
+        state.currentMainBody.classList.add('odradek-cursor');
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function finalizeCard() {
+        if (!state.currentMainBody) {
+            clearCardState();
+            return;
+        }
+
+        const fullText = state.currentMainBody.textContent || '';
+        const ASK_MARKER = '[ASK]:';
+        const askIdx = fullText.indexOf(ASK_MARKER);
+
+        if (askIdx !== -1) {
+            const narrativePart = fullText.slice(0, askIdx).trim();
+            const questionPart  = fullText.slice(askIdx + ASK_MARKER.length).trim();
+            state.currentMainBody.innerHTML = narrativePart ? renderMarkdown(narrativePart) : '';
+            const promptEl = document.createElement('div');
+            promptEl.className = 'exchange-prompt';
+            promptEl.innerHTML =
+                '<div class="exchange-prompt-label">&#9670; Needs your input</div>' +
+                '<div class="exchange-prompt-body">' + renderMarkdown(questionPart) + '</div>';
+            state.currentMainBody.parentElement.appendChild(promptEl);
+        } else {
+            state.currentMainBody.innerHTML = renderMarkdown(fullText);
+        }
+
+        state.currentMainBody.classList.remove('odradek-cursor');
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        clearCardState();
+    }
+
+    function clearCardState() {
+        state.currentCard         = null;
+        state.currentActivityEl   = null;
+        state.currentMainBody     = null;
+        state.currentActivityCount = 0;
+    }
+
+    // ── Status bar — busy phrases + timer ────────────────────────────────────
+    const BUSY_PHRASES = [
+        'Consulting the oracle\u2026',
+        'Untangling the spaghetti\u2026',
+        'Asking the digital spirits\u2026',
+        'Caffeinating the neural networks\u2026',
+        'Summoning marketing wisdom\u2026',
+        'Bribing the API\u2026',
+        'Conjuring database magic\u2026',
+        'Teaching electrons to dance\u2026',
+        'Negotiating with the servers\u2026',
+        'Persuading the algorithms\u2026',
+        'Waking up the AI gremlins\u2026',
+        'Loading creative juices\u2026',
+        'Herding the bits and bytes\u2026',
+        'Convincing the clouds to cooperate\u2026',
+        'Mining for insights\u2026',
+        'Decoding your request\u2026',
+        'Spinning up the thinking machine\u2026',
+        'Applying quantum marketing\u2026',
+        'Synchronizing with the matrix\u2026',
+        'Processing\u2026 please hold\u2026',
+    ];
+
+    let phraseTimer    = null;
+    let timerInterval  = null;
+    let busyStart      = null;
+    let phraseIdx      = 0;
+
+    function startBusy() {
+        if (!statusBar) return;
+        statusBar.classList.remove('status-idle');
+        statusBar.classList.add('status-busy');
+        busyStart  = Date.now();
+        phraseIdx  = Math.floor(Math.random() * BUSY_PHRASES.length);
+        if (statusPhrase) statusPhrase.textContent = BUSY_PHRASES[phraseIdx];
+        phraseTimer = setInterval(() => {
+            phraseIdx = (phraseIdx + 1) % BUSY_PHRASES.length;
+            if (statusPhrase) statusPhrase.textContent = BUSY_PHRASES[phraseIdx];
+        }, 3500);
+        timerInterval = setInterval(() => {
+            const s  = Math.floor((Date.now() - busyStart) / 1000);
+            const mm = String(Math.floor(s / 60)).padStart(2, '0');
+            const ss = String(s % 60).padStart(2, '0');
+            if (statusTimer) statusTimer.textContent = `${mm}:${ss}`;
+        }, 1000);
+    }
+
+    function stopBusy() {
+        clearInterval(phraseTimer);
+        clearInterval(timerInterval);
+        phraseTimer   = null;
+        timerInterval = null;
+        if (!statusBar) return;
+        statusBar.classList.remove('status-busy');
+        statusBar.classList.add('status-idle');
+        if (statusPhrase) statusPhrase.textContent = '';
+        if (statusTimer)  statusTimer.textContent  = '';
+    }
+
+    // ── summarizeResult (used by completeActivityLine + old batch path) ──────
     function summarizeResult(result) {
         if (result.message) return result.message;
-        if (result.error)   return '✗ ' + result.error;
+        if (result.error)   return '\u2717 ' + result.error;
         if (result.contacts)  return `${result.count} contact(s) found`;
         if (result.emails)    return `${result.count} email(s) found`;
         if (result.campaigns) return `${result.count} campaign(s) found`;
@@ -580,7 +782,7 @@
         if (result.journey)  return `Journey plan ready: ${result.journey.journey_name || 'see AI response'}`;
         // Compliance report
         if (result.report) {
-            const rate = result.report.compliance_rate;
+            const rate   = result.report.compliance_rate;
             const status = result.report.overall_compliance;
             return rate !== undefined
                 ? `Compliance: ${status} (${rate}%) across ${result.emails_audited} email(s)`
@@ -720,7 +922,7 @@
         });
     });
 
-    // ── Send / chat ──────────────────────────────────────────────────────────
+    // ── setBusy (disables inputs) ────────────────────────────────────────────
     function setBusy(busy) {
         state.busy            = busy;
         inputEl.disabled      = busy;
@@ -729,12 +931,7 @@
         quickBtns.forEach(b => { b.disabled = busy; });
     }
 
-    function setStatus(text) {
-        statusEl.textContent = text;
-    }
-
-    // Synchronous GJS selection capture — called at send time so the AI always
-    // has the current selection regardless of whether the async event binding is live.
+    // ── GJS selection capture ────────────────────────────────────────────────
     function captureGjsSelectionNow() {
         dbg('[OdradekGJS] captureGjsSelectionNow called; gjsSelected=', gjsSelected ? 'present' : 'null');
         // Try live selection from the bound editor first
@@ -786,16 +983,20 @@
         }
     }
 
+    // ── Send / chat ──────────────────────────────────────────────────────────
     function sendUserMessage() {
         const text = inputEl.value.trim();
         if (!text || state.busy) return;
 
         inputEl.value = '';
+        expandAI();
 
         // Add to history
-        const userMsg = { role: 'user', content: text };
-        state.messages.push(userMsg);
-        appendMessage('user', text);
+        state.messages.push({ role: 'user', content: text });
+
+        // Start exchange card + busy animation
+        startExchangeCard(text);
+        startBusy();
 
         captureGjsSelectionNow();          // snapshot current GJS selection (if any)
         const planMode = planModeChk.checked;
@@ -810,31 +1011,24 @@
 
     function sendMessages(messages, context, planMode, approved) {
         setBusy(true);
-        setStatus(planMode && !approved ? 'Planning…' : 'Thinking…');
 
         const payload = { messages, context, planMode, approved };
 
-        let currentAiEl = null;
-        let currentAiBody = null;
+        // Batch state — maps batchId → activity line escaped id
+        const batchActIds = {};
 
-        // Thinking indicator — shown immediately before any SSE arrives
-        const thinkingEl = appendMessage('thinking', '');
-        let thinkingRemoved = false;
-        function removeThinking() {
-            if (!thinkingRemoved && thinkingEl && thinkingEl.parentNode) {
-                thinkingEl.remove();
-                thinkingRemoved = true;
-            }
-        }
+        const mutatingTools = new Set([
+            'create_contact', 'update_contact', 'delete_contact',
+            'create_email', 'update_email',
+            'create_segment',
+        ]);
 
-        // Batch state — keyed by batchId
-        const batchGroups = {};
-
-        const source = new EventSource(CHAT_URL + '?_sse=1');
-        // Use fetch + manual SSE parsing for POST
-        source.close();
+        let didMutate = false;
 
         // Manual POST SSE via fetch + ReadableStream
+        const source = new EventSource(CHAT_URL + '?_sse=1');
+        source.close();
+
         fetch(CHAT_URL, {
             method:  'POST',
             headers: {
@@ -876,122 +1070,46 @@
 
             return pump();
         }).catch(err => {
-            appendMessage('error', err.message);
+            // Show error in exchange-main if available
+            if (state.currentMainBody) {
+                state.currentMainBody.classList.remove('odradek-cursor');
+                state.currentMainBody.innerHTML =
+                    `<span style="color:#f85149"><strong>Error:</strong> ${escHtml(err.message)}</span>`;
+            }
+            clearCardState();
+            stopBusy();
             setBusy(false);
-            setStatus('');
         });
 
         // ── SSE event handler ──────────────────────────────────────────────
-        const mutatingTools = new Set([
-            'create_contact', 'update_contact', 'delete_contact',
-            'create_email', 'update_email',
-            'create_segment',
-        ]);
-
-        let didMutate = false;
-
-        function createBatchGroup(batchId, total, toolName) {
-            const el = document.createElement('div');
-            el.className = 'odradek-msg msg-batch';
-            el.innerHTML = `
-                <div class="batch-header">
-                    <span class="odradek-spinner"></span>
-                    <span class="batch-label">&#9889; Executing ${total} operation${total !== 1 ? 's' : ''}&#8230;</span>
-                    <span class="batch-counter">0/${total}</span>
-                </div>
-                <ul class="batch-list"></ul>`;
-            messagesEl.appendChild(el);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-            return {
-                el,
-                listEl:    el.querySelector('.batch-list'),
-                counterEl: el.querySelector('.batch-counter'),
-                headerEl:  el.querySelector('.batch-header'),
-                spinnerEl: el.querySelector('.odradek-spinner'),
-                items: {},
-            };
-        }
-
-        function updateBatchGroup(group, data) {
-            group.counterEl.textContent = `${data.completed}/${data.total}`;
-            let li = group.items[data.callId];
-            if (!li) {
-                li = document.createElement('li');
-                li.className = 'batch-item';
-                group.listEl.appendChild(li);
-                group.items[data.callId] = li;
-            }
-            const icon    = data.success ? '&#10003;' : '&#10007;';
-            const iconCls = data.success ? 'batch-icon--ok' : 'batch-icon--fail';
-            const keyPart = data.keyArg ? ` <span class="batch-key-arg">${escHtml(data.keyArg)}</span>` : '';
-            const sumPart = data.summary ? ` \u2014 ${escHtml(data.summary)}` : '';
-            li.className  = `batch-item batch-item--${data.success ? 'ok' : 'fail'}`;
-            li.innerHTML  = `<span class="batch-icon ${iconCls}">${icon}</span> ${escHtml(data.toolName)}${keyPart}${sumPart}`;
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
-
-        function collapseBatchGroup(group, data) {
-            if (group.spinnerEl) group.spinnerEl.remove();
-            group.listEl.classList.add('batch-list--collapsed');
-            const allOk = data.failCount === 0;
-            const label = group.el.querySelector('.batch-label');
-            if (label) {
-                const failNote = data.failCount > 0 ? `, ${data.failCount} failed` : '';
-                label.innerHTML = `<span class="batch-icon ${allOk ? 'batch-icon--ok' : 'batch-icon--warn'}">${allOk ? '&#10003;' : '&#9888;'}</span> `
-                                + `${data.successCount}/${data.total} completed${failNote}`;
-            }
-            group.counterEl.textContent = '';
-            group.headerEl.classList.add('batch-header--done');
-            group.headerEl.title = 'Click to expand';
-            group.headerEl.addEventListener('click', () => {
-                group.listEl.classList.toggle('batch-list--collapsed');
-                group.headerEl.title = group.listEl.classList.contains('batch-list--collapsed')
-                    ? 'Click to expand' : 'Click to collapse';
-            });
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
-
         function handleSseEvent(event, rawData) {
             let data;
             try { data = JSON.parse(rawData); } catch (_) { return; }
 
             if (event === 'content') {
-                removeThinking();
-                if (!currentAiEl) {
-                    currentAiEl   = appendMessage('ai', '');
-                    currentAiBody = currentAiEl.querySelector('.msg-body');
-                }
-                currentAiBody.textContent += data.text;
-                // Add cursor class (will be removed on done)
-                currentAiBody.classList.add('odradek-cursor');
-                messagesEl.scrollTop = messagesEl.scrollHeight;
+                appendToMain(data.text || data.content || '');
 
                 // Track full AI reply for history
                 const last = state.messages[state.messages.length - 1];
                 if (last && last.role === 'assistant') {
-                    last.content += data.text;
+                    last.content += (data.text || data.content || '');
                 } else {
-                    state.messages.push({ role: 'assistant', content: data.text });
+                    state.messages.push({ role: 'assistant', content: (data.text || data.content || '') });
                 }
 
-            } else if (event === 'thinking') {
-                // no-op: thinkingEl already created before fetch
-
             } else if (event === 'tool_call') {
-                removeThinking();
-                appendMessage('tool', '', { name: data.name, args: data.args, id: data.id });
-                setStatus(`Running: ${data.name}`);
+                addActivityLine(data.name, data.id, data.args);
 
             } else if (event === 'tool_result') {
-                updateToolMsg(data.id, data.result);
+                const ok = !(data.result && data.result.success === false);
+                completeActivityLine(data.id, ok, data.result);
                 if (mutatingTools.has(data.tool)) didMutate = true;
 
             } else if (event === 'client_tool') {
                 if (data.tool === 'navigate_mautic') {
                     navigateIframe(data.args.path);
-                    updateToolMsg(data.id, { success: true, message: `Navigated to ${data.args.path}` });
+                    completeActivityLine(data.id, true, { message: `Navigated to ${data.args.path}` });
                 } else if (data.tool === 'get_page_info') {
-                    // Inject current page info into next context
                     try {
                         const iWin = iframe.contentWindow;
                         const iDoc = iframe.contentDocument;
@@ -1000,7 +1118,7 @@
                             pageTitle: iDoc.title,
                         });
                     } catch (_) {}
-                    updateToolMsg(data.id, { success: true, message: 'Page info captured' });
+                    completeActivityLine(data.id, true, { message: 'Page info captured' });
                 } else if (data.tool === 'update_grapesjs_component') {
                     try {
                         const idx      = Number(data.args.componentIndex ?? 0) || 0;
@@ -1016,34 +1134,30 @@
                         if (!html) throw new Error('AI returned empty HTML — nothing to apply');
 
                         if (ctype === 'text') {
-                            // Standard GrapesJS text component: set('content') triggers
-                            // its change:content listener which calls components() internally.
                             selected.set('content', html);
                         } else {
-                            // MJML components (mj-text, mj-button, …): replace inner children directly.
-                            // NOTE: do NOT call set('content', html) here — on mj-text it sets a raw
-                            // attribute that triggers a re-render clearing the children we just set.
                             selected.components(html);
                         }
-                        // Refresh the chip immediately — GrapesJS won't re-fire component:selected
-                        // for an already-selected component, so the chip would stay stale otherwise.
                         setTimeout(function() {
                             if (gjsSelectedAll.length) buildGjsChip(gjsSelectedAll);
                         }, 50);
-                        updateToolMsg(data.id, { success: true, message: 'Component updated in builder' });
+                        completeActivityLine(data.id, true, { message: 'Component updated in builder' });
                     } catch (e) {
-                        updateToolMsg(data.id, { success: false, error: e.message });
+                        completeActivityLine(data.id, false, { success: false, error: e.message });
                     }
                 }
 
             } else if (event === 'batch_start') {
-                removeThinking();
-                batchGroups[data.batchId] = createBatchGroup(data.batchId, data.total, data.toolName);
-                setStatus(`Executing ${data.total} operations\u2026`);
+                const batchActId = 'batch-' + data.batchId;
+                batchActIds[data.batchId] = batchActId;
+                addActivityLine('\u26a1 ' + data.total + ' operation' + (data.total !== 1 ? 's' : '') + ' \u2014 0/' + data.total, batchActId, null);
 
             } else if (event === 'batch_progress') {
-                const group = batchGroups[data.batchId];
-                if (group) updateBatchGroup(group, data);
+                const batchActId = batchActIds[data.batchId];
+                if (batchActId) {
+                    updateActivityLineText(batchActId,
+                        '\u26a1 ' + data.toolName + ' \u2014 ' + data.completed + '/' + data.total);
+                }
                 if (mutatingTools.has(data.toolName)) didMutate = true;
                 // Handle client-side tools inside a batch (e.g. navigate_mautic)
                 if (data.toolName === 'navigate_mautic' && data.args && data.args.path) {
@@ -1051,63 +1165,120 @@
                 }
 
             } else if (event === 'batch_done') {
-                const group = batchGroups[data.batchId];
-                if (group) { collapseBatchGroup(group, data); delete batchGroups[data.batchId]; }
-                setStatus('');
+                const batchActId = batchActIds[data.batchId];
+                if (batchActId) {
+                    const allOk  = data.failCount === 0;
+                    const note   = data.failCount > 0 ? `, ${data.failCount} failed` : '';
+                    const label  = `${data.successCount}/${data.total} completed${note}`;
+                    completeActivityLine(batchActId, allOk, { message: label });
+                    delete batchActIds[data.batchId];
+                }
 
             } else if (event === 'plan') {
-                removeThinking();
-                currentAiEl = null; // reset AI bubble
-                appendMessage('plan', '', { steps: data.steps });
-                setBusy(false);
-                setStatus('');
+                // Render plan inside the exchange-main body
+                if (state.currentMainBody) {
+                    const steps     = (data.steps     || []).map(s => `<li>${escHtml(String(s))}</li>`).join('');
+                    const questions = data.questions   || [];
 
-            } else if (event === 'error') {
-                appendMessage('error', data.message);
-                setBusy(false);
-                setStatus('');
-
-            } else if (event === 'done') {
-                removeThinking();
-
-                // ── Post-stream markdown rendering + prompt detection ─────────────────
-                if (currentAiEl && currentAiBody) {
-                    const last = state.messages[state.messages.length - 1];
-                    const fullText = (last && last.role === 'assistant') ? last.content : (currentAiBody.textContent || '');
-
-                    const ASK_MARKER = '[ASK]:';
-                    const askIdx = fullText.indexOf(ASK_MARKER);
-
-                    if (askIdx !== -1) {
-                        const narrativePart = fullText.slice(0, askIdx).trim();
-                        const questionPart  = fullText.slice(askIdx + ASK_MARKER.length).trim();
-
-                        currentAiBody.innerHTML = narrativePart ? renderMarkdown(narrativePart) : '';
-
-                        const promptEl = document.createElement('div');
-                        promptEl.className = 'msg-prompt';
-                        promptEl.innerHTML =
-                            '<div class="msg-prompt-label">&#9670; Needs your input</div>' +
-                            '<div class="msg-prompt-body">' + renderMarkdown(questionPart) + '</div>';
-                        currentAiEl.appendChild(promptEl);
-                    } else {
-                        currentAiBody.innerHTML = renderMarkdown(fullText);
+                    let qaHtml = '';
+                    if (questions.length > 0) {
+                        qaHtml = '<div class="plan-questions"><strong>A few questions before I start:</strong><dl>';
+                        questions.forEach((item, i) => {
+                            const hint = item.hint ? ` placeholder="${escHtml(item.hint)}"` : '';
+                            qaHtml += `<dt>${escHtml(item.q)}</dt>`;
+                            qaHtml += `<dd><input type="text" class="plan-answer" data-idx="${i}"${hint}></dd>`;
+                        });
+                        qaHtml += '</dl></div>';
                     }
 
-                    currentAiBody.classList.remove('odradek-cursor');
+                    state.currentMainBody.classList.remove('odradek-cursor');
+                    state.currentMainBody.innerHTML = `
+                        <div class="plan-title">&#9635; Execution Plan</div>
+                        <ol>${steps}</ol>
+                        ${qaHtml}
+                        <div class="plan-actions">
+                            <button class="plan-approve-btn">&#10003; Approve &amp; Execute</button>
+                            <button class="plan-cancel-btn">&#10005; Cancel</button>
+                        </div>`;
+
+                    // Wire approve button
+                    state.currentMainBody.querySelector('.plan-approve-btn').addEventListener('click', () => {
+                        const answers = [...state.currentMainBody.querySelectorAll('.plan-answer')]
+                            .map((inp, i) => ({ q: questions[i]?.q || `Q${i + 1}`, a: inp.value.trim() }))
+                            .filter(a => a.a);
+
+                        // Replace plan in old card with a notice
+                        const actionsEl = state.currentMainBody.querySelector('.plan-actions');
+                        if (actionsEl) actionsEl.remove();
+                        const qaEl = state.currentMainBody.querySelector('.plan-questions');
+                        if (qaEl) qaEl.remove();
+                        const notice = document.createElement('p');
+                        notice.className = 'exchange-notice';
+                        notice.textContent = 'Plan approved. Executing\u2026';
+                        state.currentMainBody.appendChild(notice);
+
+                        clearCardState();
+
+                        if (state.pendingPlanMessages) {
+                            let msgs = [...state.pendingPlanMessages];
+                            if (answers.length > 0) {
+                                const answerText = answers.map(a => `${a.q}: ${a.a}`).join('\n');
+                                msgs = [...msgs, { role: 'user', content: `My answers:\n${answerText}` }];
+                            }
+                            // Find original user message for display
+                            const origMsg    = state.pendingPlanMessages.filter(m => m.role === 'user').pop();
+                            const displayText = origMsg ? origMsg.content.slice(0, 150) : 'Executing approved plan\u2026';
+
+                            startExchangeCard(displayText);
+                            startBusy();
+                            sendMessages(msgs, buildContext(), false, true);
+                            state.pendingPlanMessages = null;
+                        }
+                    });
+
+                    // Wire cancel button
+                    state.currentMainBody.querySelector('.plan-cancel-btn').addEventListener('click', () => {
+                        state.currentMainBody.querySelector('.plan-actions').remove();
+                        const notice = document.createElement('p');
+                        notice.className = 'exchange-notice';
+                        notice.textContent = 'Cancelled.';
+                        state.currentMainBody.appendChild(notice);
+                        clearCardState();
+                        state.pendingPlanMessages = null;
+                        stopBusy();
+                        setBusy(false);
+                    });
+
                     messagesEl.scrollTop = messagesEl.scrollHeight;
                 }
 
-                currentAiEl   = null;
-                currentAiBody = null;
+                stopBusy();
+                setBusy(false);
+
+            } else if (event === 'error') {
+                if (state.currentMainBody) {
+                    state.currentMainBody.classList.remove('odradek-cursor');
+                    state.currentMainBody.innerHTML =
+                        `<span style="color:#f85149"><strong>Error:</strong> ${escHtml(data.message)}</span>`;
+                }
+                clearCardState();
+                stopBusy();
+                setBusy(false);
+
+            } else if (event === 'done') {
+                finalizeCard();
 
                 if (didMutate) {
                     setTimeout(reloadIframe, 400);
                     didMutate = false;
                 }
 
+                // Save to recent activity
+                const lastUserMsg = state.messages.filter(m => m.role === 'user').pop();
+                if (lastUserMsg) addRecentActivity(lastUserMsg.content);
+
+                stopBusy();
                 setBusy(false);
-                setStatus('');
             }
         }
     }
@@ -1123,12 +1294,13 @@
     sendBtn.addEventListener('click', sendUserMessage);
 
     clearBtn.addEventListener('click', () => {
-        state.messages    = [];
+        state.messages     = [];
         state.contextItems = [];
+        clearCardState();
         messagesEl.innerHTML = '';
         chipsEl.innerHTML    = '';
-        setStatus('');
-        renderEmptyState();
+        stopBusy();
+        showWelcomeScreen();
     });
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1171,5 +1343,4 @@
         s = s.replace(/`([^`]+)`/g,     '<code>$1</code>');
         return s;
     }
-
 })();

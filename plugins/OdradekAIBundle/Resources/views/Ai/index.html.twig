@@ -135,7 +135,11 @@
                 spellcheck="true"
             ></textarea>
             <div id="odradek-input-actions">
-                <span id="odradek-status"></span>
+                <div id="odradek-status-bar" class="status-idle">
+                    <span id="odradek-status-anim">&#9670;</span>
+                    <span id="odradek-status-phrase"></span>
+                    <span id="odradek-status-timer"></span>
+                </div>
                 <button id="odradek-send">Send &#8629;</button>
             </div>
         </div>
@@ -144,8 +148,11 @@
 </div>
 
 <script>
-    window.ODRADEK_CHAT_URL = {{ chatUrl|json_encode|raw }};
+    window.ODRADEK_CHAT_URL   = {{ chatUrl|json_encode|raw }};
     window.ODRADEK_CSRF_TOKEN = {{ csrfToken|json_encode|raw }};
+    window.ODRADEK_USER_NAME  = {{ userName|json_encode|raw }};
+    window.ODRADEK_API_KEY_SET = {{ apiKeySet ? 'true' : 'false' }};
+    window.ODRADEK_MODEL      = {{ model|json_encode|raw }};
 </script>
 <script src="{{ assetBase }}/js/odradek-ai.js"></script>
 </body>
