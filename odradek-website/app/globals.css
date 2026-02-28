@@ -1,0 +1,111 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, monospace;
+
+  /* Custom ODRADEK Brand Colors directly accessible via Tailwind classes */
+  --color-brand-primary: #00A088;
+  --color-brand-primary-dark: #007A66;
+  --color-brand-primary-light: #E6F7F4;
+  --color-brand-secondary: #1A3A5C;
+  --color-brand-accent: #FF6B6B;
+  --color-brand-success: #10B981;
+  --color-brand-warning: #F59E0B;
+  --color-brand-surface: #F9FAFB;
+  --color-brand-card: #FFFFFF;
+  --color-brand-text-primary: #111827;
+  --color-brand-text-secondary: #6B7280;
+  --color-brand-border: #E5E7EB;
+
+  /* shadcn/ui mapping */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: #F9FAFB;
+  /* surface */
+  --foreground: #111827;
+  /* text-primary */
+  --card: #FFFFFF;
+  --card-foreground: #111827;
+  --popover: #FFFFFF;
+  --popover-foreground: #111827;
+  --primary: #00A088;
+  --primary-foreground: #FFFFFF;
+  --secondary: #1A3A5C;
+  --secondary-foreground: #FFFFFF;
+  --muted: #F3F4F6;
+  --muted-foreground: #6B7280;
+  --accent: #FF6B6B;
+  --accent-foreground: #FFFFFF;
+  --destructive: #FF6B6B;
+  --destructive-foreground: #FFFFFF;
+  --border: #E5E7EB;
+  --input: #E5E7EB;
+  --ring: #00A088;
+}
+
+.dark {
+  --background: #0D1F30;
+  --foreground: #F9FAFB;
+  --card: #1A3A5C;
+  --card-foreground: #F9FAFB;
+  --popover: #1A3A5C;
+  --popover-foreground: #F9FAFB;
+  --primary: #00A088;
+  --primary-foreground: #FFFFFF;
+  --secondary: #2C5282;
+  --secondary-foreground: #FFFFFF;
+  --muted: #2D3748;
+  --muted-foreground: #A0AEC0;
+  --accent: #FF6B6B;
+  --accent-foreground: #FFFFFF;
+  --destructive: #FF6B6B;
+  --destructive-foreground: #FFFFFF;
+  --border: #2D3748;
+  --input: #2D3748;
+  --ring: #00A088;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
