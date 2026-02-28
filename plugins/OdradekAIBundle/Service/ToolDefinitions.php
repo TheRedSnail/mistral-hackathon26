@@ -450,6 +450,104 @@ class ToolDefinitions
                 ],
             ],
 
+            // ── Assets ────────────────────────────────────────────────────────
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'list_asset_categories',
+                    'description' => 'List existing asset categories so you can pick one when creating an image asset. '
+                                   . 'If no fitting category exists, call create_asset_category first.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => new \stdClass(),
+                        'required'   => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'create_asset_category',
+                    'description' => 'Create a new asset category. Call list_asset_categories first to avoid duplicates.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'title'       => ['type' => 'string', 'description' => 'Category display name.'],
+                            'description' => ['type' => 'string', 'description' => 'Optional description.'],
+                        ],
+                        'required' => ['title'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'generate_image_asset',
+                    'description' => 'Generate an image using the Gemini API and save it as a Mautic asset. '
+                                   . 'Always call list_asset_categories first to pick or create the right category. '
+                                   . 'Use language code "en" if the image contains no text or mixed-world text.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'prompt'      => ['type' => 'string', 'description' => 'Detailed image generation prompt for Gemini.'],
+                            'title'       => ['type' => 'string', 'description' => 'Asset title shown in Mautic.'],
+                            'description' => ['type' => 'string', 'description' => 'Optional description of the image.'],
+                            'category_id' => ['type' => 'integer', 'description' => 'Asset category ID (from list_asset_categories or create_asset_category).'],
+                            'language'    => ['type' => 'string', 'description' => 'Locale code for the language used in the image, e.g. "en", "de", "fr". Use "en" if no text in image. Default: "en".'],
+                        ],
+                        'required' => ['prompt', 'title'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'list_assets',
+                    'description' => 'List Mautic assets (files/images) with optional search filter.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'search' => ['type' => 'string', 'description' => 'Filter by asset title.'],
+                            'limit'  => ['type' => 'integer', 'description' => 'Max number to return. Default 20.'],
+                        ],
+                        'required' => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_asset',
+                    'description' => 'Get full details of a Mautic asset by ID.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id' => ['type' => 'integer', 'description' => 'The asset ID.'],
+                        ],
+                        'required' => ['id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'update_asset',
+                    'description' => 'Update metadata (title, description, category, language) of an existing Mautic asset.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id'          => ['type' => 'integer', 'description' => 'The asset ID to update.'],
+                            'title'       => ['type' => 'string', 'description' => 'New title.'],
+                            'description' => ['type' => 'string', 'description' => 'New description.'],
+                            'category_id' => ['type' => 'integer', 'description' => 'New category ID.'],
+                            'language'    => ['type' => 'string', 'description' => 'New language code.'],
+                            'disallow'    => ['type' => 'boolean', 'description' => 'Block search engines (true = yes). Default remains unchanged.'],
+                        ],
+                        'required' => ['id'],
+                    ],
+                ],
+            ],
+
             // ── Navigation / Page Context ─────────────────────────────────────
             [
                 'type'     => 'function',

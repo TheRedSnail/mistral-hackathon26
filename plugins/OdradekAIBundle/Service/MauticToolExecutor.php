@@ -6,6 +6,7 @@ namespace MauticPlugin\OdradekAIBundle\Service;
 
 use Mautic\CampaignBundle\Model\CampaignModel;
 use Mautic\CoreBundle\Factory\ModelFactory;
+use Mautic\CoreBundle\Helper\CoreParametersHelper;
 use Mautic\EmailBundle\Model\EmailModel;
 use Mautic\LeadBundle\Model\LeadModel;
 use Mautic\LeadBundle\Model\ListModel;
@@ -22,6 +23,8 @@ class MauticToolExecutor
         private readonly ModelFactory         $modelFactory,
         private readonly GrapesJsBuilderModel $grapesJsBuilderModel,
         private readonly MistralClient        $mistralClient,
+        private readonly GeminiClient         $geminiClient,
+        private readonly CoreParametersHelper $parametersHelper,
     ) {}
 
     public function execute(string $tool, array $args): array
@@ -60,6 +63,12 @@ class MauticToolExecutor
                 'generate_compliance_report'   => $this->generateComplianceReport($args),
                 'analyze_contact_sentiment'    => $this->analyzeContactSentiment($args),
                 'score_contact_health'         => $this->scoreContactHealth($args),
+                'list_assets'           => $this->listAssets($args),
+                'get_asset'             => $this->getAsset($args),
+                'list_asset_categories' => $this->listAssetCategories(),
+                'create_asset_category' => $this->createAssetCategory($args),
+                'generate_image_asset'  => $this->generateImageAsset($args),
+                'update_asset'          => $this->updateAsset($args),
                 default                        => ['success' => false, 'error' => "Unknown tool: {$tool}"],
             };
         } catch (\Throwable $e) {
@@ -1090,6 +1099,183 @@ HTML;
             'contact_name' => $contactData['name'],
             'contact_id'   => $lead->getId(),
             'score_data'   => $scoreData,
+        ];
+    }
+
+    // ── Assets ────────────────────────────────────────────────────────────────
+
+    private function listAssets(array $args): array
+    {
+        $assetModel = $this->modelFactory->getModel('asset');
+        $limit      = (int) ($args['limit'] ?? 20);
+        $search     = $args['search'] ?? '';
+
+        $assets = $assetModel->getEntities([
+            'start'  => 0,
+            'limit'  => $limit,
+            'filter' => ['string' => $search],
+        ]);
+
+        $data = [];
+        foreach ($assets as $asset) {
+            $data[] = [
+                'id'          => $asset->getId(),
+                'title'       => $asset->getTitle(),
+                'description' => $asset->getDescription(),
+                'language'    => $asset->getLanguage(),
+                'extension'   => $asset->getExtension(),
+                'category'    => $asset->getCategory()?->getTitle(),
+            ];
+        }
+
+        return ['success' => true, 'assets' => $data, 'count' => count($data)];
+    }
+
+    private function getAsset(array $args): array
+    {
+        $assetModel = $this->modelFactory->getModel('asset');
+        $asset      = $assetModel->getEntity((int) $args['id']);
+
+        if (!$asset) {
+            return ['success' => false, 'error' => "Asset #{$args['id']} not found."];
+        }
+
+        return [
+            'success' => true,
+            'asset'   => [
+                'id'              => $asset->getId(),
+                'title'           => $asset->getTitle(),
+                'description'     => $asset->getDescription(),
+                'language'        => $asset->getLanguage(),
+                'extension'       => $asset->getExtension(),
+                'mime'            => $asset->getMime(),
+                'storageLocation' => $asset->getStorageLocation(),
+                'disallow'        => $asset->getDisallow(),
+                'category'        => $asset->getCategory()?->getTitle(),
+                'category_id'     => $asset->getCategory()?->getId(),
+            ],
+        ];
+    }
+
+    private function listAssetCategories(): array
+    {
+        $categoryModel = $this->modelFactory->getModel('category');
+        $categories    = $categoryModel->getRepository()->getCategoryList('asset', '', 50, 0);
+
+        return ['success' => true, 'categories' => $categories];
+    }
+
+    private function createAssetCategory(array $args): array
+    {
+        $categoryModel = $this->modelFactory->getModel('category');
+        $category      = $categoryModel->getEntity();
+        $category->setTitle($args['title']);
+        $category->setBundle('asset');
+        $category->setIsPublished(true);
+
+        if (!empty($args['description'])) {
+            $category->setDescription($args['description']);
+        }
+
+        $categoryModel->saveEntity($category);
+
+        return [
+            'success'  => true,
+            'category' => ['id' => $category->getId(), 'title' => $category->getTitle()],
+            'message'  => "Asset category \"{$args['title']}\" created with ID #{$category->getId()}.",
+        ];
+    }
+
+    private function generateImageAsset(array $args): array
+    {
+        // 1. Generate image via Gemini
+        $imageResult = $this->geminiClient->generateImage($args['prompt']);
+        $mimeType    = $imageResult['mimeType'];  // e.g. 'image/png'
+        $imageData   = base64_decode($imageResult['data']);
+
+        // Derive extension from mime type
+        $ext = match ($mimeType) {
+            'image/jpeg' => 'jpg',
+            'image/webp' => 'webp',
+            'image/gif'  => 'gif',
+            default      => 'png',
+        };
+
+        // 2. Save to Mautic media/files directory
+        $uploadDir = (string) $this->parametersHelper->get('upload_dir');
+        $filename  = 'ai_' . uniqid('', true) . '.' . $ext;
+        $filePath  = $uploadDir . '/' . $filename;
+
+        if (file_put_contents($filePath, $imageData) === false) {
+            return ['success' => false, 'error' => "Failed to write image to disk at {$filePath}."];
+        }
+
+        // 3. Create Mautic asset entity
+        $assetModel = $this->modelFactory->getModel('asset');
+        $asset      = $assetModel->getEntity();
+        $asset->setTitle($args['title']);
+        $asset->setStorageLocation('local');
+        $asset->setUploadDir($uploadDir);
+        $asset->setPath($filename);
+        $asset->setFileInfoFromFile();   // reads mime, extension, size from the file on disk
+        $asset->setLanguage($args['language'] ?? 'en');
+        $asset->setDisallow(true);       // block search engines = yes
+        $asset->setIsPublished(true);    // available for use = checked
+
+        if (!empty($args['description'])) {
+            $asset->setDescription($args['description']);
+        }
+
+        if (!empty($args['category_id'])) {
+            $categoryModel = $this->modelFactory->getModel('category');
+            $category      = $categoryModel->getEntity((int) $args['category_id']);
+            if ($category) {
+                $asset->setCategory($category);
+            }
+        }
+
+        $assetModel->saveEntity($asset);
+
+        return [
+            'success' => true,
+            'asset'   => [
+                'id'       => $asset->getId(),
+                'title'    => $asset->getTitle(),
+                'filename' => $filename,
+                'mime'     => $asset->getMime(),
+            ],
+            'message' => "Image asset \"{$args['title']}\" created with ID #{$asset->getId()} and saved as {$filename}.",
+        ];
+    }
+
+    private function updateAsset(array $args): array
+    {
+        $assetModel = $this->modelFactory->getModel('asset');
+        $asset      = $assetModel->getEntity((int) $args['id']);
+
+        if (!$asset) {
+            return ['success' => false, 'error' => "Asset #{$args['id']} not found."];
+        }
+
+        if (isset($args['title']))       { $asset->setTitle($args['title']); }
+        if (isset($args['description'])) { $asset->setDescription($args['description']); }
+        if (isset($args['language']))    { $asset->setLanguage($args['language']); }
+        if (isset($args['disallow']))    { $asset->setDisallow((bool) $args['disallow']); }
+
+        if (!empty($args['category_id'])) {
+            $categoryModel = $this->modelFactory->getModel('category');
+            $category      = $categoryModel->getEntity((int) $args['category_id']);
+            if ($category) {
+                $asset->setCategory($category);
+            }
+        }
+
+        $assetModel->saveEntity($asset);
+
+        return [
+            'success' => true,
+            'asset'   => ['id' => $asset->getId(), 'title' => $asset->getTitle()],
+            'message' => "Asset #{$args['id']} updated.",
         ];
     }
 }

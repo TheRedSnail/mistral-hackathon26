@@ -22,6 +22,13 @@ class ConfigType extends AbstractType
             'always_empty' => false,
         ]);
 
+        $builder->add('odradek_ai_gemini_api_key', PasswordType::class, [
+            'label'        => 'plugin.odradek_ai.config.gemini_api_key',
+            'required'     => false,
+            'attr'         => ['placeholder' => 'AIza...', 'autocomplete' => 'off'],
+            'always_empty' => false,
+        ]);
+
         $builder->add('odradek_ai_model', ChoiceType::class, [
             'label'   => 'plugin.odradek_ai.config.model',
             'choices' => [

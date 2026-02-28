@@ -24,8 +24,9 @@ return [
     ],
 
     'parameters' => [
-        'odradek_ai_api_key'    => '',
-        'odradek_ai_model'      => 'mistral-large-latest',
+        'odradek_ai_api_key'        => '',
+        'odradek_ai_gemini_api_key' => '',
+        'odradek_ai_model'          => 'mistral-large-latest',
         'odradek_ai_enabled'    => false,
         'odradek_ai_max_tokens' => 8000,
     ],
