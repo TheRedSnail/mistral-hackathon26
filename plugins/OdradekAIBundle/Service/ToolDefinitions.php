@@ -260,15 +260,71 @@ class ToolDefinitions
             [
                 'type'     => 'function',
                 'function' => [
-                    'name'        => 'create_segment',
-                    'description' => 'Create a new contact segment/list in Mautic.',
+                    'name'        => 'get_segment',
+                    'description' => 'Fetch a contact segment by ID. Returns id, name, alias, publicName, description, filters, and member count.',
                     'parameters'  => [
                         'type'       => 'object',
                         'properties' => [
-                            'name'  => ['type' => 'string', 'description' => 'Display name for the segment.'],
-                            'alias' => ['type' => 'string', 'description' => 'URL-safe alias (optional, auto-generated if omitted).'],
+                            'id' => ['type' => 'integer', 'description' => 'The segment ID.'],
+                        ],
+                        'required' => ['id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_segment_filter_fields',
+                    'description' => 'Returns a curated list of filterable contact fields with their alias, label, type, and valid operators. Always call this before constructing any segment filter array.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => new \stdClass(),
+                        'required'   => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'create_segment',
+                    'description' => 'Create a new contact segment/list in Mautic. Call get_segment_filter_fields first if you need to add filters.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'name'        => ['type' => 'string', 'description' => 'Display name for the segment.'],
+                            'alias'       => ['type' => 'string', 'description' => 'URL-safe alias (optional, auto-generated if omitted).'],
+                            'publicName'  => ['type' => 'string', 'description' => 'Public-facing name shown to contacts (optional).'],
+                            'description' => ['type' => 'string', 'description' => 'Internal description (optional).'],
+                            'filters'     => [
+                                'type'        => 'array',
+                                'description' => 'Filter criteria. Each item: {glue, field, object, type, filter, operator}. glue is "and"|"or". Use get_segment_filter_fields to obtain valid field aliases and operators.',
+                                'items'       => ['type' => 'object'],
+                            ],
                         ],
                         'required' => ['name'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'update_segment',
+                    'description' => 'Update an existing contact segment by ID. Provide only the fields you want to change. Call get_segment_filter_fields first if modifying filters.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id'          => ['type' => 'integer', 'description' => 'The segment ID to update.'],
+                            'name'        => ['type' => 'string', 'description' => 'New display name.'],
+                            'alias'       => ['type' => 'string', 'description' => 'New URL-safe alias.'],
+                            'publicName'  => ['type' => 'string', 'description' => 'New public-facing name.'],
+                            'description' => ['type' => 'string', 'description' => 'New internal description.'],
+                            'filters'     => [
+                                'type'        => 'array',
+                                'description' => 'Replacement filter array. Replaces all existing filters. Use get_segment_filter_fields to obtain valid field aliases and operators.',
+                                'items'       => ['type' => 'object'],
+                            ],
+                        ],
+                        'required' => ['id'],
                     ],
                 ],
             ],

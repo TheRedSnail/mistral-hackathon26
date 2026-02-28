@@ -47,8 +47,11 @@ class MauticToolExecutor
                 'update_email_component' => $this->updateEmailComponent($args),
                 'list_campaigns' => $this->listCampaigns($args),
                 'get_campaign'   => $this->getCampaign($args),
-                'list_segments'  => $this->listSegments($args),
-                'create_segment' => $this->createSegment($args),
+                'list_segments'              => $this->listSegments($args),
+                'get_segment'               => $this->getSegment($args),
+                'get_segment_filter_fields' => $this->getSegmentFilterFields(),
+                'create_segment'            => $this->createSegment($args),
+                'update_segment'            => $this->updateSegment($args),
                 'list_reports'              => $this->listReports(),
                 'get_report_data'           => $this->getReportData($args),
                 'analyze_email_ethics'         => $this->analyzeEmailEthics($args),
@@ -570,6 +573,34 @@ HTML;
         return ['success' => true, 'segments' => $data, 'count' => count($data)];
     }
 
+    private function getSegment(array $args): array
+    {
+        $segment = $this->listModel->getEntity((int) $args['id']);
+        if (!$segment) {
+            return ['success' => false, 'error' => "Segment #{$args['id']} not found."];
+        }
+
+        return [
+            'success' => true,
+            'segment' => [
+                'id'          => $segment->getId(),
+                'name'        => $segment->getName(),
+                'alias'       => $segment->getAlias(),
+                'publicName'  => $segment->getPublicName(),
+                'description' => $segment->getDescription(),
+                'filters'     => $segment->getFilters(),
+            ],
+        ];
+    }
+
+    private function getSegmentFilterFields(): array
+    {
+        return [
+            'success' => true,
+            'fields'  => self::segmentFilterFieldList(),
+        ];
+    }
+
     private function createSegment(array $args): array
     {
         /** @var \Mautic\LeadBundle\Entity\LeadList $segment */
@@ -579,6 +610,15 @@ HTML;
         if (!empty($args['alias'])) {
             $segment->setAlias($args['alias']);
         }
+        if (isset($args['publicName'])) {
+            $segment->setPublicName($args['publicName']);
+        }
+        if (isset($args['description'])) {
+            $segment->setDescription($args['description']);
+        }
+        if (!empty($args['filters']) && is_array($args['filters'])) {
+            $segment->setFilters($args['filters']);
+        }
 
         $this->listModel->saveEntity($segment);
 
@@ -586,6 +626,85 @@ HTML;
             'success' => true,
             'segment' => ['id' => $segment->getId(), 'name' => $segment->getName(), 'alias' => $segment->getAlias()],
             'message' => "Segment \"{$args['name']}\" created with ID #{$segment->getId()}.",
+        ];
+    }
+
+    private function updateSegment(array $args): array
+    {
+        $segment = $this->listModel->getEntity((int) $args['id']);
+        if (!$segment) {
+            return ['success' => false, 'error' => "Segment #{$args['id']} not found."];
+        }
+
+        if (isset($args['name'])) {
+            $segment->setName($args['name']);
+        }
+        if (isset($args['alias'])) {
+            $segment->setAlias($args['alias']);
+        }
+        if (isset($args['publicName'])) {
+            $segment->setPublicName($args['publicName']);
+        }
+        if (isset($args['description'])) {
+            $segment->setDescription($args['description']);
+        }
+        if (isset($args['filters']) && is_array($args['filters'])) {
+            $segment->setFilters($args['filters']);
+        }
+
+        $this->listModel->saveEntity($segment);
+
+        return [
+            'success' => true,
+            'segment' => [
+                'id'    => $segment->getId(),
+                'name'  => $segment->getName(),
+                'alias' => $segment->getAlias(),
+            ],
+            'message' => "Segment #{$segment->getId()} updated successfully.",
+        ];
+    }
+
+    private static function segmentFilterFieldList(): array
+    {
+        $textOps   = ['=', '!=', 'like', '!like', 'contains', 'startsWith', 'endsWith', 'empty', '!empty', 'regexp', '!regexp'];
+        $numOps    = ['=', '!=', 'gt', 'gte', 'lt', 'lte', 'empty', '!empty'];
+        $dateOps   = ['=', '!=', 'gt', 'gte', 'lt', 'lte', 'between', '!between', 'empty', '!empty'];
+        $selectOps = ['in', '!in', 'empty', '!empty'];
+
+        return [
+            // Standard text fields (object: lead)
+            ['alias' => 'firstname',   'label' => 'First Name',    'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'lastname',    'label' => 'Last Name',     'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'email',       'label' => 'Email',         'type' => 'email',  'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'phone',       'label' => 'Phone',         'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'mobile',      'label' => 'Mobile',        'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'company',     'label' => 'Company',       'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'city',        'label' => 'City',          'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'state',       'label' => 'State',         'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'country',     'label' => 'Country',       'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'zipcode',     'label' => 'Zip Code',      'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'address1',    'label' => 'Address Line 1','type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'address2',    'label' => 'Address Line 2','type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'website',     'label' => 'Website',       'type' => 'url',    'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'title',       'label' => 'Title',         'type' => 'text',   'object' => 'lead', 'operators' => $textOps],
+            ['alias' => 'industry',    'label' => 'Industry',      'type' => 'select', 'object' => 'lead', 'operators' => $selectOps],
+            // Numeric
+            ['alias' => 'points',      'label' => 'Lead Score',    'type' => 'number', 'object' => 'lead', 'operators' => $numOps],
+            // Dates
+            ['alias' => 'date_added',  'label' => 'Date Added',    'type' => 'date',   'object' => 'lead', 'operators' => $dateOps],
+            ['alias' => 'last_active', 'label' => 'Last Active',   'type' => 'date',   'object' => 'lead', 'operators' => $dateOps],
+            // Behavioral
+            ['alias' => 'tags',        'label' => 'Tags',          'type' => 'tags',        'object' => 'lead', 'operators' => $selectOps],
+            ['alias' => 'stage',       'label' => 'Stage',         'type' => 'stage',        'object' => 'lead', 'operators' => $selectOps],
+            ['alias' => 'leadlist',    'label' => 'Segment membership', 'type' => 'leadlist', 'object' => 'lead', 'operators' => $selectOps],
+            ['alias' => 'device_type', 'label' => 'Device Type',   'type' => 'select', 'object' => 'lead', 'operators' => $selectOps],
+            // Do Not Contact (boolean: filter value 0=No, 1=Yes; operators = and !=)
+            ['alias' => 'dnc_unsubscribed',  'label' => 'Do Not Contact: Email Unsubscribed', 'type' => 'boolean', 'object' => 'lead', 'operators' => ['=', '!=']],
+            ['alias' => 'dnc_bounced',       'label' => 'Do Not Contact: Email Bounced',      'type' => 'boolean', 'object' => 'lead', 'operators' => ['=', '!=']],
+            ['alias' => 'dnc_manual_email',  'label' => 'Do Not Contact: Email Manual',       'type' => 'boolean', 'object' => 'lead', 'operators' => ['=', '!=']],
+            ['alias' => 'dnc_unsubscribed_sms', 'label' => 'Do Not Contact: SMS Unsubscribed','type' => 'boolean', 'object' => 'lead', 'operators' => ['=', '!=']],
+            ['alias' => 'dnc_bounced_sms',   'label' => 'Do Not Contact: SMS Bounced',        'type' => 'boolean', 'object' => 'lead', 'operators' => ['=', '!=']],
         ];
     }
 

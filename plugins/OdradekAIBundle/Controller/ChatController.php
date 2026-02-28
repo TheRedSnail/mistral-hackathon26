@@ -217,8 +217,10 @@ class ChatController extends CommonController
             'create_email', 'update_email', 'get_email' => $args['name'] ?? ('#' . ($args['id'] ?? '?')),
             'get_email_components'   => '#' . ($args['id'] ?? '?'),
             'update_email_component' => '#' . ($args['id'] ?? '?') . '[' . ($args['componentIndex'] ?? '?') . ']',
-            'create_segment'  => $args['name'] ?? '',
-            'navigate_mautic' => $args['path'] ?? '',
+            'create_segment'            => $args['name'] ?? '',
+            'get_segment', 'update_segment' => '#' . ($args['id'] ?? '?'),
+            'get_segment_filter_fields' => '',
+            'navigate_mautic'           => $args['path'] ?? '',
             default           => '',
         };
     }
@@ -255,6 +257,7 @@ class ChatController extends CommonController
         $content .= "When the user wants a regulatory audit or compliance report for a campaign, use generate_compliance_report — it checks EU AI Act and GDPR article by article. ";
         $content .= "When asked about a contact's sentiment, feelings, attitude, or interest signals, use analyze_contact_sentiment. ";
         $content .= "When asked about a contact's health, churn risk, engagement score, or whether they are at risk, use score_contact_health. ";
+        $content .= "When creating or editing a segment that includes filters, always call get_segment_filter_fields first to verify available field aliases and operators — never guess field names. ";
 
         if (!empty($context['url'])) {
             $title = $context['pageTitle'] ?? '';
