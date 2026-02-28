@@ -30,7 +30,7 @@ class MistralClient
      *
      * @throws \RuntimeException on HTTP or API error
      */
-    public function complete(array $messages, array $tools = []): array
+    public function complete(array $messages, array $tools = [], string $toolChoice = 'auto'): array
     {
         $apiKey = $this->parametersHelper->get('odradek_ai_api_key');
         $model  = $this->parametersHelper->get('odradek_ai_model') ?: 'mistral-large-latest';
@@ -43,12 +43,12 @@ class MistralClient
             'model'               => $model,
             'messages'            => $messages,
             'stream'              => false,
-            'parallel_tool_calls' => false,
+            'parallel_tool_calls' => true,
         ];
 
         if (!empty($tools)) {
             $payload['tools']       = $tools;
-            $payload['tool_choice'] = 'auto';
+            $payload['tool_choice'] = $toolChoice;
         }
 
         $response = $this->http->request('POST', self::API_URL, [
@@ -57,8 +57,9 @@ class MistralClient
                 'Content-Type'  => 'application/json',
                 'Accept'        => 'application/json',
             ],
-            'json'    => $payload,
-            'timeout' => 120,
+            'json'         => $payload,
+            'timeout'      => 120,   // inactivity timeout (Symfony maps this to curl's idle tracking; default is PHP's default_socket_timeout ~60s)
+            'max_duration' => 300,   // hard cap of 5 minutes total
         ]);
 
         $statusCode = $response->getStatusCode();
@@ -73,7 +74,6 @@ class MistralClient
         if (!$choice) {
             throw new \RuntimeException('Empty response from Mistral API.');
         }
-
         $message    = $choice['message'];
         $toolCalls  = [];
 

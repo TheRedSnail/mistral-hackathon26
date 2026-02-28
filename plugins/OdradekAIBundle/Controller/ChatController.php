@@ -84,8 +84,15 @@ class ChatController extends CommonController
                 $tools   = ToolDefinitions::getTools();
                 $maxIter = 10;
 
+                // When multiple GrapesJS components are selected, force tool use on the
+                // first turn so the AI cannot fabricate results with a text-only response.
+                $selectedComponents = $context['selectedComponents'] ?? [];
+                $forceToolOnFirst   = count($selectedComponents) > 1;
+
+                $emitSse('thinking', []);
                 for ($i = 0; $i < $maxIter; $i++) {
-                    $response = $mistral->complete($fullMsgs, $tools);
+                    $toolChoice = ($i === 0 && $forceToolOnFirst) ? 'required' : 'auto';
+                    $response   = $mistral->complete($fullMsgs, $tools, $toolChoice);
 
                     // Emit text content if any
                     if (!empty($response['content'])) {
@@ -98,38 +105,89 @@ class ChatController extends CommonController
                         return;
                     }
 
-                    // Process tool calls one at a time (parallel_tool_calls=false)
+                    $calls          = $response['tool_calls'];
+                    $callCount      = count($calls);
                     $toolResultMsgs = [];
 
-                    foreach ($response['tool_calls'] as $call) {
+                    if ($callCount === 1) {
+                        // ── Single tool: existing behaviour ──────────────────────────────────
+                        $call     = $calls[0];
                         $toolName = $call['function']['name'];
                         $toolArgs = json_decode($call['function']['arguments'], true) ?? [];
                         $callId   = $call['id'];
 
-                        $emitSse('tool_call', [
-                            'name' => $toolName,
-                            'args' => $toolArgs,
-                            'id'   => $callId,
-                        ]);
-
+                        $emitSse('tool_call', ['name' => $toolName, 'args' => $toolArgs, 'id' => $callId]);
                         $result = $executor->execute($toolName, $toolArgs);
 
                         if (!empty($result['client_side'])) {
-                            // Frontend will handle navigation / page-info tools
                             $emitSse('client_tool', ['tool' => $toolName, 'args' => $toolArgs, 'id' => $callId]);
-                            $toolResultMsgs[] = [
-                                'role'         => 'tool',
-                                'content'      => 'Client-side tool executed.',
-                                'tool_call_id' => $callId,
-                            ];
+                            $toolResultMsgs[] = ['role' => 'tool', 'content' => 'Client-side tool executed.', 'tool_call_id' => $callId];
                         } else {
                             $emitSse('tool_result', ['tool' => $toolName, 'result' => $result, 'id' => $callId]);
+                            $toolResultMsgs[] = ['role' => 'tool', 'content' => json_encode($result), 'tool_call_id' => $callId];
+                        }
+
+                    } else {
+                        // ── Batch: N > 1 tool calls ───────────────────────────────────────────
+                        static $batchSeq = 0;
+                        $batchId = 'batch-' . (++$batchSeq);
+
+                        $emitSse('batch_start', [
+                            'batchId'  => $batchId,
+                            'total'    => $callCount,
+                            'toolName' => $calls[0]['function']['name'],
+                        ]);
+
+                        $successCount = 0;
+                        $failCount    = 0;
+                        $completed    = 0;
+
+                        foreach ($calls as $call) {
+                            $toolName = $call['function']['name'];
+                            $toolArgs = json_decode($call['function']['arguments'], true) ?? [];
+                            $callId   = $call['id'];
+                            $result   = $executor->execute($toolName, $toolArgs);
+                            $completed++;
+
+                            $isClientSide = !empty($result['client_side']);
+                            if ($isClientSide) {
+                                $successCount++;
+                                $summary = 'Client-side tool executed.';
+                                $ok      = true;
+                                // Emit client_tool so the frontend JS can apply the change (e.g. update GrapesJS component)
+                                $emitSse('client_tool', ['tool' => $toolName, 'args' => $toolArgs, 'id' => $callId]);
+                            } else {
+                                $ok = ($result['success'] ?? true) !== false;
+                                $ok ? $successCount++ : $failCount++;
+                                $summary = $result['message'] ?? $result['error'] ?? json_encode($result);
+                                if (strlen($summary) > 80) $summary = substr($summary, 0, 77) . '...';
+                            }
+
+                            $emitSse('batch_progress', [
+                                'batchId'   => $batchId,
+                                'completed' => $completed,
+                                'total'     => $callCount,
+                                'callId'    => $callId,
+                                'toolName'  => $toolName,
+                                'keyArg'    => self::extractKeyArg($toolName, $toolArgs),
+                                'args'      => $toolArgs,
+                                'success'   => $ok,
+                                'summary'   => $summary,
+                            ]);
+
                             $toolResultMsgs[] = [
                                 'role'         => 'tool',
-                                'content'      => json_encode($result),
+                                'content'      => $isClientSide ? 'Client-side tool executed.' : json_encode($result),
                                 'tool_call_id' => $callId,
                             ];
                         }
+
+                        $emitSse('batch_done', [
+                            'batchId'      => $batchId,
+                            'total'        => $callCount,
+                            'successCount' => $successCount,
+                            'failCount'    => $failCount,
+                        ]);
                     }
 
                     // Append assistant turn + tool results, then continue loop
@@ -149,6 +207,22 @@ class ChatController extends CommonController
         });
     }
 
+    private static function extractKeyArg(string $toolName, array $args): string
+    {
+        return match ($toolName) {
+            'create_contact', 'update_contact' => trim(
+                ($args['fields']['firstname'] ?? '') . ' ' . ($args['fields']['lastname'] ?? '')
+            ) ?: ($args['fields']['email'] ?? ''),
+            'delete_contact', 'get_contact'             => '#' . ($args['id'] ?? '?'),
+            'create_email', 'update_email', 'get_email' => $args['name'] ?? ('#' . ($args['id'] ?? '?')),
+            'get_email_components'   => '#' . ($args['id'] ?? '?'),
+            'update_email_component' => '#' . ($args['id'] ?? '?') . '[' . ($args['componentIndex'] ?? '?') . ']',
+            'create_segment'  => $args['name'] ?? '',
+            'navigate_mautic' => $args['path'] ?? '',
+            default           => '',
+        };
+    }
+
     private function buildSystemMessage(array $context): array
     {
         $content  = "You are an AI assistant embedded inside the Mautic marketing automation platform. ";
@@ -161,6 +235,23 @@ class ChatController extends CommonController
         $content .= "If the ethics score is below 70 or any critical/high severity issues are found, warn the user and suggest fixes before proceeding. ";
         $content .= "When the user asks about campaign results, performance, or insights, use analyze_campaign_performance. ";
         $content .= "When planning a new campaign sequence or email journey, use suggest_campaign_journey. ";
+        $content .= "When creating a full email, follow this sequence: "
+                  . "(1) Call list_email_themes and pick a fitting theme. "
+                  . "(2) Call create_email with the chosen template and body='' (empty) — the theme provides the structure. "
+                  . "(3) Call get_email_components with the new email ID to see all text slots (index + current placeholder). "
+                  . "(4) Write targeted content for each relevant slot. "
+                  . "     Skip any slot whose current text contains Mautic tokens "
+                  . "     ({unsubscribe_text}, {webview_text}, {signature}, {contactfield=...}) "
+                  . "     or looks like a legal/footer line — leave those unchanged. "
+                  . "(5) Call update_email_component once per slot you are filling. "
+                  . "(6) Call navigate_mautic with path '/s/emails/edit/{id}' so the user can preview the result. "
+                  . "Always provide HTML as inner content only (headings, paragraphs, links, lists) — never a full HTML document. ";
+        $content .= "When your response requires the user to make a choice or provide an answer before you can proceed, "
+                  . "end your message with the marker [ASK]: on its own line, followed immediately by your question or numbered options. "
+                  . "Use [ASK]: only when you genuinely cannot continue without user input. "
+                  . "Do not use [ASK]: for rhetorical questions, offers of further help, or confirmations after completing an action. ";
+        $content .= "When context.selectedComponents is present, prefer update_grapesjs_component "
+                  . "for in-place edits (translate, rewrite, replace copy) rather than update_email. ";
 
         if (!empty($context['url'])) {
             $title = $context['pageTitle'] ?? '';
@@ -174,6 +265,35 @@ class ChatController extends CommonController
         if (!empty($context['visibleText'])) {
             $snippet = mb_substr($context['visibleText'], 0, 1500);
             $content .= "Page content preview: \"{$snippet}\". ";
+        }
+
+        // Handle selectedComponents (array, new format) or selectedComponent (legacy single)
+        $components = $context['selectedComponents'] ?? null;
+        if (!$components && !empty($context['selectedComponent'])) {
+            $components = [$context['selectedComponent']]; // wrap legacy format
+        }
+        if (!empty($components)) {
+            $count = count($components);
+            if ($count === 1) {
+                $type = $components[0]['type'] ?? 'component';
+                $text = mb_substr($components[0]['text'] ?? '', 0, 400);
+                $content .= "The user has selected a \"{$type}\" component (index 0) in the GrapesJS builder. ";
+                if ($text) $content .= "Its current text content is: \"{$text}\". ";
+                $content .= "You MUST call update_grapesjs_component (componentIndex 0) to apply any edit. "
+                          . "Never describe the change in text without calling the tool — the builder will not update unless you call the tool. ";
+            } else {
+                $content .= "The user has selected {$count} components in the GrapesJS builder: ";
+                foreach ($components as $i => $comp) {
+                    $type = $comp['type'] ?? 'component';
+                    $text = mb_substr($comp['text'] ?? '', 0, 200);
+                    $content .= "#{$i} ({$type})" . ($text ? ": \"{$text}\"" : '') . "; ";
+                }
+                $content .= "You MUST call update_grapesjs_component once per component you want to change, "
+                          . "using the correct componentIndex (0-based) each time. "
+                          . "Call the tool {$count} times sequentially — one call per component. "
+                          . "Never describe the changes in text without calling the tool for each one — "
+                          . "the builder will not update unless the tool is called. ";
+            }
         }
 
         return ['role' => 'system', 'content' => $content];

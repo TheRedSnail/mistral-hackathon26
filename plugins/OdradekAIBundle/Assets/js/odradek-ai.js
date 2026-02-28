@@ -80,6 +80,14 @@
         } catch (_) {
             urlDisplay.textContent = iframe.src;
         }
+        // Reset binding state on every navigation; setupGjsTracking handles
+        // whether GrapesJS is actually present (no URL guard needed there).
+        gjsListenerReady = false;
+        gjsEditor        = null;
+        gjsSelected      = null;
+        gjsSelectedAll   = [];
+        clearGjsComponentChip();
+        setupGjsTracking();   // starts a fresh polling chain (cancels any stale one)
     });
 
     backBtn.addEventListener('click', () => {
@@ -105,7 +113,109 @@
     }
 
     // ── Element selector mode ────────────────────────────────────────────────
-    let selectorCleanup = null;
+    let selectorCleanup  = null;
+    let gjsChipId        = null;   // numeric ID of the current GrapesJS selection chip
+    let gjsListenerReady = false;  // whether we've bound to this page's GrapesJS editor
+    let gjsEditor        = null;   // cached reference to the GrapesJS editor instance
+    let gjsSelected           = null;   // reference to the currently selected GrapesJS component (first of selection)
+    let gjsSelectedAll        = [];     // all currently selected components (multi-select aware)
+    let gjsSelectionDebounce  = null;   // timer for debounced getSelectedAll() read
+    let gjsRetryTimer         = null;   // handle for the in-flight tryBind timer
+
+    function setupGjsTracking() {
+        // Cancel any in-flight polling chain from a previous load event
+        if (gjsRetryTimer) { clearTimeout(gjsRetryTimer); gjsRetryTimer = null; }
+        if (gjsListenerReady) return;
+
+        let iWin, iDoc;
+        try {
+            iWin = iframe.contentWindow;
+            iDoc = iframe.contentDocument;
+            if (!iWin) return;
+        } catch (_) { return; }
+
+        // ── Bind to a resolved editor instance ──────────────────────────────
+        function bindToEditor(editor) {
+            if (gjsListenerReady) return;
+            if (gjsRetryTimer) { clearTimeout(gjsRetryTimer); gjsRetryTimer = null; }
+            gjsEditor        = editor;
+            gjsListenerReady = true;
+            console.log('[OdradekGJS] bound to editor ✓');
+
+            function syncSelection() {
+                if (gjsSelectionDebounce) clearTimeout(gjsSelectionDebounce);
+                gjsSelectionDebounce = setTimeout(function () {
+                    gjsSelectionDebounce = null;
+                    const all = gjsEditor.getSelectedAll ? gjsEditor.getSelectedAll() : [];
+                    if (all.length) {
+                        gjsSelectedAll = all;
+                        gjsSelected    = all[0];  // keep single-ref for backward compat
+                        console.log('[OdradekGJS] syncSelection — selected', all.length, 'component(s)');
+                        buildGjsChip(all);
+                    } else {
+                        // Nothing live-selected (e.g. user clicked canvas background).
+                        // Preserve gjsSelectedAll as fallback; just clear the visual chip.
+                        console.log('[OdradekGJS] syncSelection — nothing selected, preserving cache');
+                        clearGjsComponentChip();
+                    }
+                }, 0);  // next tick — lets GrapesJS finish its own state update first
+            }
+
+            editor.on('component:selected',   syncSelection);
+            editor.on('component:deselected', syncSelection);
+        }
+
+        // ── Poll / bind ──────────────────────────────────────────────────────
+        // GrapesJS in Mautic is bundled as a webpack IIFE so window.grapesjs is
+        // NOT set. The builder exposes the editor via a jQuery event:
+        //   $builder.trigger('builder:show', [editor])
+        // We catch that via mQuery. We also keep polling window.grapesjs.editors
+        // as a fallback for setups that do expose it.
+        let attempts        = 0;
+        let jqBound         = false;  // whether we've attached the jQuery listener
+
+        function tryBind() {
+            gjsRetryTimer = null;
+            if (gjsListenerReady) return;
+            attempts++;
+
+            try {
+                // Method A: window.grapesjs.editors (works when GrapesJS is global)
+                const gjs     = iWin.grapesjs;
+                const editors = gjs && gjs.editors;
+                if (editors && editors.length) {
+                    console.log('[OdradekGJS] found via grapesjs.editors on attempt', attempts);
+                    bindToEditor(editors[editors.length - 1]);
+                    return;
+                }
+
+                // Method B: intercept Mautic's builder:show jQuery event
+                const jq        = iWin.mQuery || iWin.jQuery || iWin.$;
+                const builderEl = iDoc && iDoc.querySelector('.builder');
+                if (jq && builderEl && !jqBound) {
+                    jqBound = true;
+                    console.log('[OdradekGJS] attaching builder:show listener via mQuery');
+                    jq(builderEl).off('builder:show.odradek').on('builder:show.odradek', function (evt, editor) {
+                        console.log('[OdradekGJS] builder:show event caught, editor=', !!editor);
+                        if (editor) bindToEditor(editor);
+                    });
+                } else if (!jqBound) {
+                    console.log('[OdradekGJS] attempt', attempts,
+                        '— window.grapesjs:', !!(gjs),
+                        'mQuery:', !!jq,
+                        '.builder element:', !!builderEl);
+                }
+            } catch (e) {
+                console.warn('[OdradekGJS] tryBind error (attempt', attempts, '):', e);
+            }
+
+            // Keep polling: user might not have clicked the Builder button yet
+            if (attempts < 60) gjsRetryTimer = setTimeout(tryBind, 500);
+            else console.warn('[OdradekGJS] gave up polling after 30 s');
+        }
+
+        tryBind();
+    }
 
     function enableSelectMode() {
         state.selectMode = true;
@@ -203,6 +313,48 @@
         renderChips();
     }
 
+    function buildGjsChip(components) {
+        // Extract data from each selected component
+        const items = components.map(function(c, idx) {
+            const type         = c.get('type') || c.get('tagName') || 'component';
+            const el           = c.view && c.view.el;
+            // Prefer live DOM (el.innerHTML) over stale model attribute (get('content')).
+            // After components(html), get('content') stays stale but el.innerHTML is updated.
+            // toHTML() serialises the model's component tree — also correct after components().
+            const liveHtml     = (el && el.innerHTML) ? el.innerHTML : '';
+            const modelContent = c.get('content') || '';
+            const html         = liveHtml || (c.toHTML ? c.toHTML() : '') || modelContent;
+            const tmp          = document.createElement('div');
+            tmp.innerHTML      = liveHtml || modelContent;
+            const text         = (tmp.innerText || tmp.textContent || '').trim();
+            console.log('[OdradekGJS] buildGjsChip[' + idx + '] — type:', type, 'textPreview:', text.slice(0, 80));
+            return { index: idx, type, text: text.slice(0, 500), html: html.slice(0, 2000) };
+        });
+
+        // Replace the existing GJS chip
+        if (gjsChipId !== null)
+            state.contextItems = state.contextItems.filter(c => c.id !== gjsChipId);
+        gjsChipId = Date.now();
+        const label = components.length === 1
+            ? '\u2B21 ' + items[0].type + ': ' + (items[0].text.slice(0, 25) || items[0].type)
+            : '\u2B21 ' + components.length + ' components selected';
+        state.contextItems.push({
+            id:    gjsChipId,
+            type:  'gjs',
+            label,
+            data:  { selectedComponents: items },
+        });
+        renderChips();
+    }
+
+    function clearGjsComponentChip() {
+        if (gjsChipId !== null) {
+            state.contextItems = state.contextItems.filter(c => c.id !== gjsChipId);
+            gjsChipId = null;
+            renderChips();
+        }
+    }
+
     function renderChips() {
         chipsEl.innerHTML = '';
         state.contextItems.forEach(chip => {
@@ -227,6 +379,12 @@
             ctx.url       = ctx.url       || iframe.contentWindow.location.href;
             ctx.pageTitle = ctx.pageTitle || iframe.contentDocument.title;
         } catch (_) {}
+        console.log('[OdradekGJS] buildContext →', {
+            hasSelectedComponents: !!(ctx.selectedComponents && ctx.selectedComponents.length),
+            componentCount: ctx.selectedComponents ? ctx.selectedComponents.length : 0,
+            firstType: ctx.selectedComponents && ctx.selectedComponents[0] && ctx.selectedComponents[0].type,
+            chipCount: state.contextItems.length,
+        });
         return ctx;
     }
 
@@ -271,6 +429,12 @@
                 setStatus('');
                 setBusy(false);
             });
+        } else if (type === 'thinking') {
+            el.className = 'odradek-msg msg-thinking';
+            el.innerHTML = `<div class="thinking-row">
+        <span class="odradek-spinner"></span>
+        <span class="thinking-label">Thinking...</span>
+    </div>`;
         } else if (type === 'error') {
             el.innerHTML = `<strong>Error:</strong> ${escHtml(content)}`;
         }
@@ -330,6 +494,59 @@
         statusEl.textContent = text;
     }
 
+    // Synchronous GJS selection capture — called at send time so the AI always
+    // has the current selection regardless of whether the async event binding is live.
+    function captureGjsSelectionNow() {
+        console.log('[OdradekGJS] captureGjsSelectionNow called; gjsSelected=', gjsSelected ? 'present' : 'null');
+        // Try live selection from the bound editor first
+        if (gjsEditor) {
+            try {
+                const all = gjsEditor.getSelectedAll ? gjsEditor.getSelectedAll() : [];
+                if (all.length) {
+                    gjsSelectedAll = all;
+                    gjsSelected    = all[0];
+                    console.log('[OdradekGJS] live selection via gjsEditor —', all.length, 'component(s)');
+                    buildGjsChip(all);
+                    return;
+                }
+            } catch (_) {}
+        }
+
+        // Fall back: scan grapesjs.editors (when GrapesJS is global)
+        try {
+            const iWin = iframe.contentWindow;
+            const eds  = iWin && iWin.grapesjs && iWin.grapesjs.editors;
+            if (eds && eds.length) {
+                for (let i = eds.length - 1; i >= 0; i--) {
+                    const editor = eds[i];
+                    const all    = editor.getSelectedAll ? editor.getSelectedAll() : [];
+                    if (all.length) {
+                        gjsEditor      = editor;
+                        gjsSelectedAll = all;
+                        gjsSelected    = all[0];
+                        console.log('[OdradekGJS] live selection via grapesjs.editors —', all.length, 'component(s)');
+                        buildGjsChip(all);
+                        return;
+                    }
+                }
+                console.log('[OdradekGJS] no live selection found in any editor');
+            }
+        } catch (e) {
+            console.warn('[OdradekGJS] captureGjsSelectionNow error:', e);
+        }
+
+        // Fall back to last-known selection (user clicked into chat input)
+        if (gjsSelectedAll.length) {
+            console.log('[OdradekGJS] using cached gjsSelectedAll (', gjsSelectedAll.length, 'components)');
+            buildGjsChip(gjsSelectedAll);
+        } else if (gjsSelected) {
+            console.log('[OdradekGJS] using cached gjsSelected (single fallback)');
+            buildGjsChip([gjsSelected]);
+        } else {
+            console.log('[OdradekGJS] no selection available');
+        }
+    }
+
     function sendUserMessage() {
         const text = inputEl.value.trim();
         if (!text || state.busy) return;
@@ -341,6 +558,7 @@
         state.messages.push(userMsg);
         appendMessage('user', text);
 
+        captureGjsSelectionNow();          // snapshot current GJS selection (if any)
         const planMode = planModeChk.checked;
         const ctx      = buildContext();
 
@@ -360,6 +578,19 @@
 
         let currentAiEl = null;
         let currentAiBody = null;
+
+        // Thinking indicator — shown immediately before any SSE arrives
+        const thinkingEl = appendMessage('thinking', '');
+        let thinkingRemoved = false;
+        function removeThinking() {
+            if (!thinkingRemoved && thinkingEl && thinkingEl.parentNode) {
+                thinkingEl.remove();
+                thinkingRemoved = true;
+            }
+        }
+
+        // Batch state — keyed by batchId
+        const batchGroups = {};
 
         const source = new EventSource(CHAT_URL + '?_sse=1');
         // Use fetch + manual SSE parsing for POST
@@ -418,11 +649,73 @@
 
         let didMutate = false;
 
+        function createBatchGroup(batchId, total, toolName) {
+            const el = document.createElement('div');
+            el.className = 'odradek-msg msg-batch';
+            el.innerHTML = `
+                <div class="batch-header">
+                    <span class="odradek-spinner"></span>
+                    <span class="batch-label">&#9889; Executing ${total} operation${total !== 1 ? 's' : ''}&#8230;</span>
+                    <span class="batch-counter">0/${total}</span>
+                </div>
+                <ul class="batch-list"></ul>`;
+            messagesEl.appendChild(el);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return {
+                el,
+                listEl:    el.querySelector('.batch-list'),
+                counterEl: el.querySelector('.batch-counter'),
+                headerEl:  el.querySelector('.batch-header'),
+                spinnerEl: el.querySelector('.odradek-spinner'),
+                items: {},
+            };
+        }
+
+        function updateBatchGroup(group, data) {
+            group.counterEl.textContent = `${data.completed}/${data.total}`;
+            let li = group.items[data.callId];
+            if (!li) {
+                li = document.createElement('li');
+                li.className = 'batch-item';
+                group.listEl.appendChild(li);
+                group.items[data.callId] = li;
+            }
+            const icon    = data.success ? '&#10003;' : '&#10007;';
+            const iconCls = data.success ? 'batch-icon--ok' : 'batch-icon--fail';
+            const keyPart = data.keyArg ? ` <span class="batch-key-arg">${escHtml(data.keyArg)}</span>` : '';
+            const sumPart = data.summary ? ` \u2014 ${escHtml(data.summary)}` : '';
+            li.className  = `batch-item batch-item--${data.success ? 'ok' : 'fail'}`;
+            li.innerHTML  = `<span class="batch-icon ${iconCls}">${icon}</span> ${escHtml(data.toolName)}${keyPart}${sumPart}`;
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function collapseBatchGroup(group, data) {
+            if (group.spinnerEl) group.spinnerEl.remove();
+            group.listEl.classList.add('batch-list--collapsed');
+            const allOk = data.failCount === 0;
+            const label = group.el.querySelector('.batch-label');
+            if (label) {
+                const failNote = data.failCount > 0 ? `, ${data.failCount} failed` : '';
+                label.innerHTML = `<span class="batch-icon ${allOk ? 'batch-icon--ok' : 'batch-icon--warn'}">${allOk ? '&#10003;' : '&#9888;'}</span> `
+                                + `${data.successCount}/${data.total} completed${failNote}`;
+            }
+            group.counterEl.textContent = '';
+            group.headerEl.classList.add('batch-header--done');
+            group.headerEl.title = 'Click to expand';
+            group.headerEl.addEventListener('click', () => {
+                group.listEl.classList.toggle('batch-list--collapsed');
+                group.headerEl.title = group.listEl.classList.contains('batch-list--collapsed')
+                    ? 'Click to expand' : 'Click to collapse';
+            });
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
         function handleSseEvent(event, rawData) {
             let data;
             try { data = JSON.parse(rawData); } catch (_) { return; }
 
             if (event === 'content') {
+                removeThinking();
                 if (!currentAiEl) {
                     currentAiEl   = appendMessage('ai', '');
                     currentAiBody = currentAiEl.querySelector('.msg-body');
@@ -440,7 +733,11 @@
                     state.messages.push({ role: 'assistant', content: data.text });
                 }
 
+            } else if (event === 'thinking') {
+                // no-op: thinkingEl already created before fetch
+
             } else if (event === 'tool_call') {
+                removeThinking();
                 appendMessage('tool', '', { name: data.name, args: data.args, id: data.id });
                 setStatus(`Running: ${data.name}`);
 
@@ -463,9 +760,62 @@
                         });
                     } catch (_) {}
                     updateToolMsg(data.id, { success: true, message: 'Page info captured' });
+                } else if (data.tool === 'update_grapesjs_component') {
+                    try {
+                        const idx      = Number(data.args.componentIndex ?? 0) || 0;
+                        let   selected = (gjsSelectedAll.length > idx) ? gjsSelectedAll[idx] : (gjsSelectedAll[0] || null);
+                        if (!selected) selected = gjsSelected;
+                        if (!selected && gjsEditor) { try { selected = gjsEditor.getSelected(); } catch(_){} }
+                        if (!selected) throw new Error('No component is selected — please click the block in the builder first');
+
+                        const ctype = selected.get('type') || '';
+                        const html  = data.args.html || '';
+                        console.log('[OdradekGJS] update_grapesjs_component — idx:', idx, 'ctype:', ctype, 'html len:', html.length, 'preview:', html.slice(0, 120));
+
+                        if (!html) throw new Error('AI returned empty HTML — nothing to apply');
+
+                        if (ctype === 'text') {
+                            // Standard GrapesJS text component: set('content') triggers
+                            // its change:content listener which calls components() internally.
+                            selected.set('content', html);
+                        } else {
+                            // MJML components (mj-text, mj-button, …): replace inner children directly.
+                            // NOTE: do NOT call set('content', html) here — on mj-text it sets a raw
+                            // attribute that triggers a re-render clearing the children we just set.
+                            selected.components(html);
+                        }
+                        // Refresh the chip immediately — GrapesJS won't re-fire component:selected
+                        // for an already-selected component, so the chip would stay stale otherwise.
+                        setTimeout(function() {
+                            if (gjsSelectedAll.length) buildGjsChip(gjsSelectedAll);
+                        }, 50);
+                        updateToolMsg(data.id, { success: true, message: 'Component updated in builder' });
+                    } catch (e) {
+                        updateToolMsg(data.id, { success: false, error: e.message });
+                    }
                 }
 
+            } else if (event === 'batch_start') {
+                removeThinking();
+                batchGroups[data.batchId] = createBatchGroup(data.batchId, data.total, data.toolName);
+                setStatus(`Executing ${data.total} operations\u2026`);
+
+            } else if (event === 'batch_progress') {
+                const group = batchGroups[data.batchId];
+                if (group) updateBatchGroup(group, data);
+                if (mutatingTools.has(data.toolName)) didMutate = true;
+                // Handle client-side tools inside a batch (e.g. navigate_mautic)
+                if (data.toolName === 'navigate_mautic' && data.args && data.args.path) {
+                    iframe.src = data.args.path.startsWith('/') ? data.args.path : '/' + data.args.path;
+                }
+
+            } else if (event === 'batch_done') {
+                const group = batchGroups[data.batchId];
+                if (group) { collapseBatchGroup(group, data); delete batchGroups[data.batchId]; }
+                setStatus('');
+
             } else if (event === 'plan') {
+                removeThinking();
                 currentAiEl = null; // reset AI bubble
                 appendMessage('plan', '', { steps: data.steps });
                 setBusy(false);
@@ -477,12 +827,39 @@
                 setStatus('');
 
             } else if (event === 'done') {
-                // Remove streaming cursor
-                if (currentAiBody) currentAiBody.classList.remove('odradek-cursor');
+                removeThinking();
+
+                // ── Post-stream markdown rendering + prompt detection ─────────────────
+                if (currentAiEl && currentAiBody) {
+                    const last = state.messages[state.messages.length - 1];
+                    const fullText = (last && last.role === 'assistant') ? last.content : (currentAiBody.textContent || '');
+
+                    const ASK_MARKER = '[ASK]:';
+                    const askIdx = fullText.indexOf(ASK_MARKER);
+
+                    if (askIdx !== -1) {
+                        const narrativePart = fullText.slice(0, askIdx).trim();
+                        const questionPart  = fullText.slice(askIdx + ASK_MARKER.length).trim();
+
+                        currentAiBody.innerHTML = narrativePart ? renderMarkdown(narrativePart) : '';
+
+                        const promptEl = document.createElement('div');
+                        promptEl.className = 'msg-prompt';
+                        promptEl.innerHTML =
+                            '<div class="msg-prompt-label">&#9670; Needs your input</div>' +
+                            '<div class="msg-prompt-body">' + renderMarkdown(questionPart) + '</div>';
+                        currentAiEl.appendChild(promptEl);
+                    } else {
+                        currentAiBody.innerHTML = renderMarkdown(fullText);
+                    }
+
+                    currentAiBody.classList.remove('odradek-cursor');
+                    messagesEl.scrollTop = messagesEl.scrollHeight;
+                }
+
                 currentAiEl   = null;
                 currentAiBody = null;
 
-                // Reload Mautic iframe if any mutating tool ran
                 if (didMutate) {
                     setTimeout(reloadIframe, 400);
                     didMutate = false;
@@ -520,6 +897,37 @@
             .replace(/>/g, '&gt;')
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
+    }
+
+    function renderMarkdown(text) {
+        let t = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const blocks = [];
+        for (const block of t.split(/\n{2,}/)) {
+            const trimmed = block.trim();
+            if (!trimmed) continue;
+            const lines = trimmed.split('\n');
+            const isOrderedList = lines.every(l => /^\d+\.\s/.test(l.trim()) || l.trim() === '');
+            if (isOrderedList) {
+                let html = '<ol>';
+                for (const line of lines) {
+                    const item = line.replace(/^\d+\.\s*/, '').trim();
+                    if (item) html += '<li>' + inlineMarkdown(item) + '</li>';
+                }
+                html += '</ol>';
+                blocks.push(html);
+            } else {
+                blocks.push('<p>' + lines.map(l => inlineMarkdown(l)).join('<br>') + '</p>');
+            }
+        }
+        return blocks.join('');
+    }
+
+    function inlineMarkdown(text) {
+        let s = escHtml(text);
+        s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        s = s.replace(/\*(.+?)\*/g,     '<em>$1</em>');
+        s = s.replace(/`([^`]+)`/g,     '<code>$1</code>');
+        return s;
     }
 
 })();

@@ -486,3 +486,92 @@ html, body {
     background: rgba(31, 111, 235, 0.1) !important;
     cursor: crosshair !important;
 }
+
+/* ── Thinking indicator ────────────────────────────────────────────────────── */
+.msg-thinking { background: transparent; border: none; padding: 4px 12px; margin-bottom: 6px; }
+.thinking-row { display: flex; align-items: center; gap: 8px; }
+.thinking-label { font-size: 12px; color: #484f58; font-style: italic; }
+
+/* ── Batch group card ──────────────────────────────────────────────────────── */
+.msg-batch {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-left: 3px solid #8b949e;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #8b949e;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+}
+.batch-header {
+    display: flex; align-items: center; gap: 6px;
+    font-weight: bold; color: #d29922; margin-bottom: 4px; user-select: none;
+}
+.batch-header--done { cursor: pointer; }
+.batch-header--done:hover { color: #e3b341; }
+.batch-label { flex: 1; }
+.batch-counter { font-size: 11px; color: #6e7681; font-weight: normal; font-variant-numeric: tabular-nums; }
+.batch-list {
+    list-style: none; margin: 0; padding: 0 0 0 4px;
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 300px; overflow-y: auto;
+    transition: max-height 0.2s ease, opacity 0.2s ease;
+}
+.batch-list--collapsed { max-height: 0; overflow: hidden; opacity: 0; }
+.batch-item { display: flex; align-items: baseline; gap: 4px; font-size: 11px; color: #6e7681; padding: 1px 0; line-height: 1.4; }
+.batch-item--ok   { color: #6e7681; }
+.batch-item--fail { color: #f85149; }
+.batch-icon { font-size: 10px; flex-shrink: 0; }
+.batch-icon--ok   { color: #3fb950; }
+.batch-icon--fail { color: #f85149; }
+.batch-icon--warn { color: #d29922; }
+.batch-key-arg { color: #c9d1d9; font-weight: 600; }
+
+/* ── AI Question Prompt Box ───────────────────────────────────────────────── */
+.msg-prompt {
+    margin-top: 10px;
+    padding: 10px 14px;
+    background: #1f1500;
+    border: 1px solid #7d4e00;
+    border-left: 3px solid #d29922;
+    border-radius: 6px;
+}
+
+.msg-prompt-label {
+    font-size: 10px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #d29922;
+    margin-bottom: 8px;
+}
+
+.msg-prompt-body {
+    font-size: 13px;
+    color: #e6d5a8;
+    line-height: 1.7;
+}
+
+.msg-prompt-body p  { margin: 0 0 6px 0; }
+.msg-prompt-body p:last-child { margin-bottom: 0; }
+.msg-prompt-body ol { margin: 4px 0 0 18px; padding: 0; line-height: 1.8; }
+.msg-prompt-body li { padding: 1px 0; }
+.msg-prompt-body strong { color: #ffd680; font-weight: 700; }
+.msg-prompt-body em     { color: #e3c882; font-style: italic; }
+
+/* ── Markdown content inside AI bubbles ────────────────────────────────────── */
+.msg-ai .msg-body p  { margin: 0 0 6px 0; }
+.msg-ai .msg-body p:last-child { margin-bottom: 0; }
+.msg-ai .msg-body ol { margin: 4px 0 6px 18px; padding: 0; line-height: 1.8; }
+.msg-ai .msg-body li { padding: 1px 0; }
+.msg-ai .msg-body strong { color: #e6edf3; font-weight: 700; }
+.msg-ai .msg-body em     { font-style: italic; color: #c9d1d9; }
+.msg-ai .msg-body code {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 3px;
+    padding: 0 4px;
+    font-size: 12px;
+    font-family: 'Consolas', 'Menlo', 'Monaco', 'Courier New', monospace;
+    color: #79c0ff;
+}

@@ -97,6 +97,18 @@ class ToolDefinitions
             [
                 'type'     => 'function',
                 'function' => [
+                    'name'        => 'list_email_themes',
+                    'description' => 'List available Mautic email themes. Call this before create_email to pick an appropriate visual theme.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => new \stdClass(),
+                        'required'   => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
                     'name'        => 'list_emails',
                     'description' => 'List email assets in Mautic.',
                     'parameters'  => [
@@ -127,15 +139,20 @@ class ToolDefinitions
                 'type'     => 'function',
                 'function' => [
                     'name'        => 'create_email',
-                    'description' => 'Create a new email asset in Mautic.',
+                    'description' => 'Create a new email asset in Mautic using a visual theme. '
+                                   . 'Always call list_email_themes first, then pass the chosen theme as the template. '
+                                   . 'Pass an empty string for body — do NOT write all the content upfront. '
+                                   . 'After creation, call get_email_components to see what text slots the theme '
+                                   . 'provides, then fill each one with update_email_component.',
                     'parameters'  => [
                         'type'       => 'object',
                         'properties' => [
                             'name'      => ['type' => 'string', 'description' => 'Internal name for the email.'],
                             'subject'   => ['type' => 'string', 'description' => 'Email subject line.'],
-                            'body'      => ['type' => 'string', 'description' => 'HTML body content.'],
+                            'body'      => ['type' => 'string', 'description' => 'HTML body content. Pass empty string when using a theme — slots are filled via update_email_component.'],
                             'fromName'  => ['type' => 'string', 'description' => 'Sender display name.'],
                             'fromEmail' => ['type' => 'string', 'description' => 'Sender email address.'],
+                            'template'  => ['type' => 'string', 'description' => 'Theme folder name (e.g. "aurora", "oxygen", "sparse"). Get valid names from list_email_themes.'],
                         ],
                         'required' => ['name', 'subject', 'body'],
                     ],
@@ -153,6 +170,42 @@ class ToolDefinitions
                             'params' => ['type' => 'object', 'description' => 'Fields to update (name, subject, body, fromName, fromEmail, etc.).'],
                         ],
                         'required' => ['id', 'params'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_email_components',
+                    'description' => 'Read all editable text slots (mj-text blocks) from an email '
+                                   . 'created with a GrapesJS theme. Returns the index and current '
+                                   . 'placeholder text of each slot so you know what content to write '
+                                   . 'for each one. Call this right after create_email.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id' => ['type' => 'integer', 'description' => 'The email ID.'],
+                        ],
+                        'required' => ['id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'update_email_component',
+                    'description' => 'Replace the content of a specific text slot (mj-text block) '
+                                   . 'in a themed email by its index. Use the indexes returned by '
+                                   . 'get_email_components. Provide HTML as inner content only — '
+                                   . 'headings, paragraphs, links, lists; no full HTML wrapper.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id'             => ['type' => 'integer',  'description' => 'The email ID.'],
+                            'componentIndex' => ['type' => 'integer',  'description' => 'Zero-based index of the mj-text block (from get_email_components).'],
+                            'html'           => ['type' => 'string',   'description' => 'New inner HTML for the slot.'],
+                        ],
+                        'required' => ['id', 'componentIndex', 'html'],
                     ],
                 ],
             ],
@@ -321,6 +374,30 @@ class ToolDefinitions
                         'type'       => 'object',
                         'properties' => new \stdClass(),
                         'required'   => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'update_grapesjs_component',
+                    'description' => 'Update a selected component in the GrapesJS email builder with new HTML. '
+                        . 'When multiple components are selected, use componentIndex to target the right one. '
+                        . 'Use for in-place edits: translate, rewrite, replace copy.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'html' => [
+                                'type'        => 'string',
+                                'description' => 'New inner HTML for the component.',
+                            ],
+                            'componentIndex' => [
+                                'type'        => 'integer',
+                                'description' => 'Zero-based index of the component to update when multiple '
+                                    . 'are selected (from context.selectedComponents). Defaults to 0.',
+                            ],
+                        ],
+                        'required' => ['html'],
                     ],
                 ],
             ],

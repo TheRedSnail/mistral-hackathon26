@@ -1,0 +1,58 @@
+# ─── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+dist/
+build/
+venv/
+.venv/
+*.db
+*.sqlite3
+
+# ─── Node.js ─────────────────────────────────────────────
+node_modules/
+.pnpm-store/
+dist/
+
+# ─── Environment & Secrets ───────────────────────────────
+.env
+.env.local
+.env.production
+*.pem
+*.key
+
+# ─── IDE / Editor ────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS ──────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs ────────────────────────────────────────────────
+logs/
+*.log
+
+# ─── Docker ──────────────────────────────────────────────
+# Don't ignore Dockerfiles or compose files
+
+# ─── Test / Cache ────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# ─── Build artifacts ─────────────────────────────────────
+*.pyc
+
+# ─── Tool configs ───────────────────────────────────────
+.claude/
+.obsidian/
+
+# ─── Private / Not for repo ─────────────────────────────
+old chats/
+linkedin_revamp/
