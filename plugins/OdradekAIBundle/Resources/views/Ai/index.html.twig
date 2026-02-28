@@ -12,6 +12,41 @@
     <!-- ── Top pane: Mautic iframe ── -->
     <div id="odradek-mautic-pane">
         <div id="odradek-iframe-toolbar">
+
+            <!-- ── Odradek brand logo ── -->
+            <div id="odradek-brand" title="Odradek AI — Autonomous Mautic Intelligence">
+                <svg class="odradek-logo-svg" width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Outer dashed orbit ring (Kafka's thread) -->
+                    <circle cx="16" cy="16" r="14" stroke="#1f6feb" stroke-width="0.75" stroke-dasharray="2.5 2" opacity="0.35"/>
+                    <!-- Mid ring -->
+                    <circle cx="16" cy="16" r="9" stroke="#1f6feb" stroke-width="0.5" opacity="0.2"/>
+                    <!-- 8 arms (star-shaped spool) -->
+                    <line x1="16" y1="2"    x2="16" y2="30"   stroke="#388bfd" stroke-width="1.1" stroke-linecap="round" opacity="0.75"/>
+                    <line x1="2"  y1="16"   x2="30" y2="16"   stroke="#388bfd" stroke-width="1.1" stroke-linecap="round" opacity="0.75"/>
+                    <line x1="4.69" y1="4.69" x2="27.31" y2="27.31" stroke="#58a6ff" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+                    <line x1="27.31" y1="4.69" x2="4.69" y2="27.31" stroke="#58a6ff" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+                    <!-- Center ring + glow -->
+                    <circle cx="16" cy="16" r="5"   fill="#0d1117" stroke="#58a6ff" stroke-width="1.4"/>
+                    <circle cx="16" cy="16" r="2.5" fill="#58a6ff" class="odradek-core-pulse"/>
+                    <circle cx="16" cy="16" r="1"   fill="#c9d1d9"/>
+                    <!-- Cardinal tip nodes -->
+                    <circle cx="16"    cy="2"     r="1.8" fill="#1f6feb"/>
+                    <circle cx="16"    cy="30"    r="1.8" fill="#1f6feb"/>
+                    <circle cx="2"     cy="16"    r="1.8" fill="#1f6feb"/>
+                    <circle cx="30"    cy="16"    r="1.8" fill="#1f6feb"/>
+                    <!-- Diagonal tip nodes -->
+                    <circle cx="4.69"  cy="4.69"  r="1.5" fill="#388bfd"/>
+                    <circle cx="27.31" cy="27.31" r="1.5" fill="#388bfd"/>
+                    <circle cx="27.31" cy="4.69"  r="1.5" fill="#388bfd"/>
+                    <circle cx="4.69"  cy="27.31" r="1.5" fill="#388bfd"/>
+                </svg>
+                <div id="odradek-brand-text">
+                    <span id="odradek-brand-name">ODRADEK</span>
+                    <span id="odradek-brand-sub">AI</span>
+                </div>
+            </div>
+
+            <div id="odradek-brand-divider"></div>
             <button id="odradek-back" title="Back">&#8592;</button>
             <button id="odradek-forward" title="Forward">&#8594;</button>
             <span id="odradek-url-display"></span>
@@ -33,13 +68,34 @@
     <!-- ── Bottom pane: AI chat ── -->
     <div id="odradek-ai-pane">
         <div id="odradek-header">
-            <span class="odradek-logo">&#11041; Odradek AI</span>
+            <span class="odradek-logo">
+                <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="16" cy="16" r="14" stroke="#1f6feb" stroke-width="0.75" stroke-dasharray="2.5 2" opacity="0.4"/>
+                    <line x1="16" y1="2"    x2="16" y2="30"   stroke="#388bfd" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+                    <line x1="2"  y1="16"   x2="30" y2="16"   stroke="#388bfd" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+                    <line x1="4.69" y1="4.69" x2="27.31" y2="27.31" stroke="#58a6ff" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>
+                    <line x1="27.31" y1="4.69" x2="4.69" y2="27.31" stroke="#58a6ff" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>
+                    <circle cx="16" cy="16" r="5" fill="#0d1117" stroke="#58a6ff" stroke-width="1.5"/>
+                    <circle cx="16" cy="16" r="2.5" fill="#58a6ff"/>
+                    <circle cx="16" cy="16" r="1"   fill="#c9d1d9"/>
+                    <circle cx="16" cy="2"  r="1.8" fill="#1f6feb"/>
+                    <circle cx="16" cy="30" r="1.8" fill="#1f6feb"/>
+                    <circle cx="2"  cy="16" r="1.8" fill="#1f6feb"/>
+                    <circle cx="30" cy="16" r="1.8" fill="#1f6feb"/>
+                    <circle cx="4.69"  cy="4.69"  r="1.4" fill="#388bfd"/>
+                    <circle cx="27.31" cy="27.31" r="1.4" fill="#388bfd"/>
+                    <circle cx="27.31" cy="4.69"  r="1.4" fill="#388bfd"/>
+                    <circle cx="4.69"  cy="27.31" r="1.4" fill="#388bfd"/>
+                </svg>
+                Odradek AI
+            </span>
             <span id="odradek-model-badge">{{ model|default('mistral-large-latest') }}</span>
             <label class="odradek-toggle" title="Plan mode: preview steps before execution">
                 <input type="checkbox" id="odradek-plan-mode">
                 <span>Plan Mode</span>
             </label>
             <button id="odradek-clear" title="Clear conversation history">&#10005; Clear</button>
+            <button id="odradek-minimize" title="Minimize AI panel">&#8964;</button>
         </div>
 
         <div id="odradek-messages"></div>

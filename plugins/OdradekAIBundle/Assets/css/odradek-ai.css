@@ -18,7 +18,7 @@ html, body {
 
 /* ── Mautic iframe pane ───────────────────────────────────────────────────── */
 #odradek-mautic-pane {
-    flex: 0 0 60%;
+    flex: 1;
     display: flex;
     flex-direction: column;
     position: relative;
@@ -30,11 +30,75 @@ html, body {
     display: flex;
     align-items: center;
     gap: 6px;
-    height: 36px;
+    height: 44px;
     padding: 0 8px;
-    background: #1c1f26;
-    border-bottom: 1px solid #30363d;
+    background: #0d1117;
+    border-bottom: 1px solid #21262d;
     flex-shrink: 0;
+}
+
+/* ── Odradek brand logo ───────────────────────────────────────────────────── */
+#odradek-brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    flex-shrink: 0;
+    padding-right: 2px;
+    cursor: default;
+    user-select: none;
+}
+
+.odradek-logo-svg {
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 4px rgba(88, 166, 255, 0.35));
+    transition: filter 0.3s ease;
+}
+
+#odradek-brand:hover .odradek-logo-svg {
+    filter: drop-shadow(0 0 8px rgba(88, 166, 255, 0.65));
+}
+
+@keyframes odradek-core-pulse {
+    0%, 100% { opacity: 1;   transform: scale(1);    }
+    50%       { opacity: 0.5; transform: scale(0.75); }
+}
+
+.odradek-core-pulse {
+    transform-origin: 16px 16px;
+    transform-box: fill-box;
+    animation: odradek-core-pulse 3s ease-in-out infinite;
+}
+
+#odradek-brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1;
+    gap: 1px;
+}
+
+#odradek-brand-name {
+    font-size: 13px;
+    font-weight: 800;
+    color: #58a6ff;
+    letter-spacing: 0.18em;
+    font-family: 'Consolas', 'Menlo', 'Monaco', 'Courier New', monospace;
+}
+
+#odradek-brand-sub {
+    font-size: 9px;
+    font-weight: 600;
+    color: #388bfd;
+    letter-spacing: 0.35em;
+    font-family: 'Consolas', 'Menlo', 'Monaco', 'Courier New', monospace;
+    opacity: 0.8;
+}
+
+#odradek-brand-divider {
+    width: 1px;
+    height: 22px;
+    background: #21262d;
+    flex-shrink: 0;
+    margin: 0 4px;
 }
 
 #odradek-iframe-toolbar button {
@@ -83,6 +147,7 @@ html, body {
 
 /* ── Drag divider ─────────────────────────────────────────────────────────── */
 #odradek-divider {
+    display: none;         /* hidden when AI pane is collapsed */
     height: 6px;
     background: #21262d;
     cursor: ns-resize;
@@ -91,6 +156,10 @@ html, body {
     border-top: 1px solid #30363d;
     border-bottom: 1px solid #30363d;
     transition: background 0.15s;
+}
+
+#odradek-divider.ai-visible {
+    display: block;
 }
 
 #odradek-divider:hover,
@@ -113,13 +182,29 @@ html, body {
 
 /* ── AI pane ──────────────────────────────────────────────────────────────── */
 #odradek-ai-pane {
-    flex: 1;
+    flex-shrink: 0;
+    height: 38px;          /* collapsed: just the header bar */
     display: flex;
     flex-direction: column;
     background: #0d1117;
     color: #c9d1d9;
     overflow: hidden;
-    min-height: 120px;
+    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    border-top: 1px solid #30363d;
+}
+
+#odradek-ai-pane.ai-expanded {
+    height: 50vh;
+}
+
+/* Header acts as click-to-open bar when collapsed */
+#odradek-ai-pane:not(.ai-expanded) #odradek-header {
+    cursor: pointer;
+    user-select: none;
+}
+
+#odradek-ai-pane:not(.ai-expanded) #odradek-header:hover {
+    background: #1c2128;
 }
 
 /* ── Header ───────────────────────────────────────────────────────────────── */
@@ -134,10 +219,20 @@ html, body {
 }
 
 .odradek-logo {
-    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
     font-weight: bold;
     color: #58a6ff;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.odradek-logo svg {
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 3px rgba(88, 166, 255, 0.4));
 }
 
 #odradek-model-badge {
@@ -164,7 +259,6 @@ html, body {
 }
 
 #odradek-clear {
-    margin-left: auto;
     background: transparent;
     border: 1px solid #30363d;
     color: #8b949e;
@@ -180,6 +274,31 @@ html, body {
     background: #21262d;
     color: #f85149;
     border-color: #f85149;
+}
+
+#odradek-minimize {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    line-height: 1;
+    transition: all 0.15s;
+}
+
+#odradek-minimize:hover {
+    background: #21262d;
+    color: #c9d1d9;
+    border-color: #58a6ff;
+}
+
+/* Hide minimize button when collapsed — header click opens instead */
+#odradek-ai-pane:not(.ai-expanded) #odradek-minimize {
+    display: none;
 }
 
 /* ── Messages ─────────────────────────────────────────────────────────────── */

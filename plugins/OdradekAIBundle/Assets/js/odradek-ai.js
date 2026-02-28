@@ -9,7 +9,10 @@
     // ── DOM refs ────────────────────────────────────────────────────────────
     const splitEl      = document.getElementById('odradek-split');
     const mauticPane   = document.getElementById('odradek-mautic-pane');
+    const aiPane       = document.getElementById('odradek-ai-pane');
     const dividerEl    = document.getElementById('odradek-divider');
+    const headerEl     = document.getElementById('odradek-header');
+    const minimizeBtn  = document.getElementById('odradek-minimize');
     const iframe       = document.getElementById('odradek-mautic-frame');
     const urlDisplay   = document.getElementById('odradek-url-display');
     const selectBtn    = document.getElementById('odradek-select-btn');
@@ -35,6 +38,31 @@
         pendingPlanMessages: null, // messages saved when plan shown
     };
 
+    // ── Expand / collapse AI panel ───────────────────────────────────────────
+    function expandAI() {
+        aiPane.classList.add('ai-expanded');
+        dividerEl.classList.add('ai-visible');
+        inputEl.focus();
+    }
+
+    function collapseAI() {
+        aiPane.classList.remove('ai-expanded');
+        dividerEl.classList.remove('ai-visible');
+        aiPane.style.height = ''; // revert to CSS default (38px)
+    }
+
+    // Click header to expand when collapsed
+    headerEl.addEventListener('click', (e) => {
+        if (e.target === minimizeBtn || e.target === clearBtn) return;
+        if (!aiPane.classList.contains('ai-expanded')) expandAI();
+    });
+
+    // Minimize button collapses
+    minimizeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        collapseAI();
+    });
+
     // ── Drag-to-resize divider ───────────────────────────────────────────────
     (function initDivider() {
         let dragging = false;
@@ -44,20 +72,19 @@
         dividerEl.addEventListener('mousedown', (e) => {
             dragging  = true;
             startY    = e.clientY;
-            startH    = mauticPane.getBoundingClientRect().height;
+            startH    = aiPane.getBoundingClientRect().height;
             dividerEl.classList.add('dragging');
             document.body.style.userSelect = 'none';
             document.body.style.cursor     = 'ns-resize';
-            // Overlay iframe to keep mouse events during drag
             iframe.style.pointerEvents = 'none';
         });
 
         document.addEventListener('mousemove', (e) => {
             if (!dragging) return;
-            const delta  = e.clientY - startY;
+            const delta  = e.clientY - startY;           // positive = dragged down
             const totalH = splitEl.getBoundingClientRect().height;
-            const newH   = Math.max(80, Math.min(totalH - 160, startH + delta));
-            mauticPane.style.flex = `0 0 ${newH}px`;
+            const newH   = Math.max(120, Math.min(totalH - 80, startH - delta));
+            aiPane.style.height = `${newH}px`;
         });
 
         document.addEventListener('mouseup', () => {

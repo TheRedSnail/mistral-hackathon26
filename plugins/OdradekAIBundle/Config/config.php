@@ -23,25 +23,6 @@ return [
         ],
     ],
 
-    'menu' => [
-        'main' => [
-            'plugin.odradek_ai.menu.main' => [
-                'route'     => 'odradek_ai_index',
-                'iconClass' => 'ri-robot-2-line',
-                'access'    => 'admin',
-                'priority'  => 60,
-            ],
-        ],
-        'admin' => [
-            'plugin.odradek_ai.menu.admin' => [
-                'route'     => 'odradek_ai_index',
-                'iconClass' => 'ri-robot-2-line',
-                'access'    => 'admin',
-                'priority'  => 60,
-            ],
-        ],
-    ],
-
     'parameters' => [
         'odradek_ai_api_key'    => '',
         'odradek_ai_model'      => 'mistral-large-latest',
