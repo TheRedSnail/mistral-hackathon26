@@ -599,6 +599,87 @@ class ToolDefinitions
                     ],
                 ],
             ],
+
+            // ── Landing Pages ──────────────────────────────────────────────────
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'list_page_themes',
+                    'description' => 'List available Mautic landing-page themes. Call before create_page to pick a visual theme.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => new \stdClass(),
+                        'required'   => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'list_pages',
+                    'description' => 'List landing pages in Mautic.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'search' => ['type' => 'string',  'description' => 'Filter pages by title.'],
+                            'limit'  => ['type' => 'integer', 'description' => 'Max results. Default 20.'],
+                        ],
+                        'required' => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_page',
+                    'description' => 'Retrieve details of a single landing page by ID.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id' => ['type' => 'integer', 'description' => 'The page ID.'],
+                        ],
+                        'required' => ['id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'create_page',
+                    'description' => 'Create a new Mautic landing page. '
+                        . 'Generate well-structured HTML for the content field: semantic sections '
+                        . '(hero headline + CTA button, feature/benefit blocks, closing CTA). '
+                        . 'Use inline CSS for visual polish. Do NOT include <html><head><body> tags — '
+                        . 'only the inner content sections. The theme wraps your content with visual chrome.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'title'           => ['type' => 'string',  'description' => 'Page title (heading + tab title).'],
+                            'alias'           => ['type' => 'string',  'description' => 'URL slug for /p/{alias}. Auto-generated from title if omitted.'],
+                            'template'        => ['type' => 'string',  'description' => 'Theme folder name from list_page_themes.'],
+                            'content'         => ['type' => 'string',  'description' => 'HTML body content — no <html><head><body> wrapper tags.'],
+                            'metaDescription' => ['type' => 'string',  'description' => 'SEO meta description (under 160 chars).'],
+                            'isPublished'     => ['type' => 'boolean', 'description' => 'Publish immediately. Default true.'],
+                        ],
+                        'required' => ['title', 'content'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'update_page',
+                    'description' => 'Update an existing landing page.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id'     => ['type' => 'integer', 'description' => 'The page ID.'],
+                            'params' => ['type' => 'object',  'description' => 'Fields to update: title, content, template, alias, metaDescription, isPublished.'],
+                        ],
+                        'required' => ['id', 'params'],
+                    ],
+                ],
+            ],
         ];
     }
 }

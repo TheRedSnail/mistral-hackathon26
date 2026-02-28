@@ -6,6 +6,11 @@
 (function () {
     'use strict';
 
+    // ── Debug logging (only when window.ODRADEK_DEBUG === true) ─────────────
+    const DEBUG = window.ODRADEK_DEBUG === true;
+    function dbg(...a)     { if (DEBUG) console.log(...a); }
+    function dbgWarn(...a) { if (DEBUG) console.warn(...a); }
+
     // ── DOM refs ────────────────────────────────────────────────────────────
     const splitEl      = document.getElementById('odradek-split');
     const mauticPane   = document.getElementById('odradek-mautic-pane');
@@ -126,9 +131,11 @@
     });
 
     function navigateIframe(path) {
-        // Ensure absolute path within same origin
-        const url = path.startsWith('http') ? path : window.location.origin + path;
-        iframe.src = url;
+        if (!path || typeof path !== 'string') return;
+        // Reject external URLs and protocol-relative URLs
+        if (/^(https?:)?\/\//i.test(path)) return;
+        const safePath = path.startsWith('/') ? path : '/' + path;
+        iframe.src = window.location.origin + safePath;
     }
 
     function reloadIframe() {
@@ -167,7 +174,7 @@
             if (gjsRetryTimer) { clearTimeout(gjsRetryTimer); gjsRetryTimer = null; }
             gjsEditor        = editor;
             gjsListenerReady = true;
-            console.log('[OdradekGJS] bound to editor ✓');
+            dbg('[OdradekGJS] bound to editor ✓');
 
             function syncSelection() {
                 if (gjsSelectionDebounce) clearTimeout(gjsSelectionDebounce);
@@ -177,12 +184,12 @@
                     if (all.length) {
                         gjsSelectedAll = all;
                         gjsSelected    = all[0];  // keep single-ref for backward compat
-                        console.log('[OdradekGJS] syncSelection — selected', all.length, 'component(s)');
+                        dbg('[OdradekGJS] syncSelection — selected', all.length, 'component(s)');
                         buildGjsChip(all);
                     } else {
                         // Nothing live-selected (e.g. user clicked canvas background).
                         // Preserve gjsSelectedAll as fallback; just clear the visual chip.
-                        console.log('[OdradekGJS] syncSelection — nothing selected, preserving cache');
+                        dbg('[OdradekGJS] syncSelection — nothing selected, preserving cache');
                         clearGjsComponentChip();
                     }
                 }, 0);  // next tick — lets GrapesJS finish its own state update first
@@ -211,7 +218,7 @@
                 const gjs     = iWin.grapesjs;
                 const editors = gjs && gjs.editors;
                 if (editors && editors.length) {
-                    console.log('[OdradekGJS] found via grapesjs.editors on attempt', attempts);
+                    dbg('[OdradekGJS] found via grapesjs.editors on attempt', attempts);
                     bindToEditor(editors[editors.length - 1]);
                     return;
                 }
@@ -221,24 +228,24 @@
                 const builderEl = iDoc && iDoc.querySelector('.builder');
                 if (jq && builderEl && !jqBound) {
                     jqBound = true;
-                    console.log('[OdradekGJS] attaching builder:show listener via mQuery');
+                    dbg('[OdradekGJS] attaching builder:show listener via mQuery');
                     jq(builderEl).off('builder:show.odradek').on('builder:show.odradek', function (evt, editor) {
-                        console.log('[OdradekGJS] builder:show event caught, editor=', !!editor);
+                        dbg('[OdradekGJS] builder:show event caught, editor=', !!editor);
                         if (editor) bindToEditor(editor);
                     });
                 } else if (!jqBound) {
-                    console.log('[OdradekGJS] attempt', attempts,
+                    dbg('[OdradekGJS] attempt', attempts,
                         '— window.grapesjs:', !!(gjs),
                         'mQuery:', !!jq,
                         '.builder element:', !!builderEl);
                 }
             } catch (e) {
-                console.warn('[OdradekGJS] tryBind error (attempt', attempts, '):', e);
+                dbgWarn('[OdradekGJS] tryBind error (attempt', attempts, '):', e);
             }
 
             // Keep polling: user might not have clicked the Builder button yet
             if (attempts < 60) gjsRetryTimer = setTimeout(tryBind, 500);
-            else console.warn('[OdradekGJS] gave up polling after 30 s');
+            else dbgWarn('[OdradekGJS] gave up polling after 30 s');
         }
 
         tryBind();
@@ -354,7 +361,7 @@
             const tmp          = document.createElement('div');
             tmp.innerHTML      = liveHtml || modelContent;
             const text         = (tmp.innerText || tmp.textContent || '').trim();
-            console.log('[OdradekGJS] buildGjsChip[' + idx + '] — type:', type, 'textPreview:', text.slice(0, 80));
+            dbg('[OdradekGJS] buildGjsChip[' + idx + '] — type:', type, 'textPreview:', text.slice(0, 80));
             return { index: idx, type, text: text.slice(0, 500), html: html.slice(0, 2000) };
         });
 
@@ -406,7 +413,7 @@
             ctx.url       = ctx.url       || iframe.contentWindow.location.href;
             ctx.pageTitle = ctx.pageTitle || iframe.contentDocument.title;
         } catch (_) {}
-        console.log('[OdradekGJS] buildContext →', {
+        dbg('[OdradekGJS] buildContext →', {
             hasSelectedComponents: !!(ctx.selectedComponents && ctx.selectedComponents.length),
             componentCount: ctx.selectedComponents ? ctx.selectedComponents.length : 0,
             firstType: ctx.selectedComponents && ctx.selectedComponents[0] && ctx.selectedComponents[0].type,
@@ -648,6 +655,13 @@
             hint:        'Which contact should be scored for engagement health and churn risk?',
             placeholder: 'Contact name, email address, or ID…',
             buildPrompt: (val) => `Score the engagement health and churn risk of contact "${val.trim()}"`
+        },
+        page: {
+            icon:        '🌐',
+            label:       'Build Page',
+            hint:        'Describe the landing page you want — goal, audience, key messages, and tone.',
+            placeholder: 'e.g. Lead gen page for our new SaaS product targeting marketing teams…',
+            buildPrompt: (val) => `Build a landing page for: ${val.trim()}`
         }
     };
 
@@ -722,7 +736,7 @@
     // Synchronous GJS selection capture — called at send time so the AI always
     // has the current selection regardless of whether the async event binding is live.
     function captureGjsSelectionNow() {
-        console.log('[OdradekGJS] captureGjsSelectionNow called; gjsSelected=', gjsSelected ? 'present' : 'null');
+        dbg('[OdradekGJS] captureGjsSelectionNow called; gjsSelected=', gjsSelected ? 'present' : 'null');
         // Try live selection from the bound editor first
         if (gjsEditor) {
             try {
@@ -730,7 +744,7 @@
                 if (all.length) {
                     gjsSelectedAll = all;
                     gjsSelected    = all[0];
-                    console.log('[OdradekGJS] live selection via gjsEditor —', all.length, 'component(s)');
+                    dbg('[OdradekGJS] live selection via gjsEditor —', all.length, 'component(s)');
                     buildGjsChip(all);
                     return;
                 }
@@ -749,26 +763,26 @@
                         gjsEditor      = editor;
                         gjsSelectedAll = all;
                         gjsSelected    = all[0];
-                        console.log('[OdradekGJS] live selection via grapesjs.editors —', all.length, 'component(s)');
+                        dbg('[OdradekGJS] live selection via grapesjs.editors —', all.length, 'component(s)');
                         buildGjsChip(all);
                         return;
                     }
                 }
-                console.log('[OdradekGJS] no live selection found in any editor');
+                dbg('[OdradekGJS] no live selection found in any editor');
             }
         } catch (e) {
-            console.warn('[OdradekGJS] captureGjsSelectionNow error:', e);
+            dbgWarn('[OdradekGJS] captureGjsSelectionNow error:', e);
         }
 
         // Fall back to last-known selection (user clicked into chat input)
         if (gjsSelectedAll.length) {
-            console.log('[OdradekGJS] using cached gjsSelectedAll (', gjsSelectedAll.length, 'components)');
+            dbg('[OdradekGJS] using cached gjsSelectedAll (', gjsSelectedAll.length, 'components)');
             buildGjsChip(gjsSelectedAll);
         } else if (gjsSelected) {
-            console.log('[OdradekGJS] using cached gjsSelected (single fallback)');
+            dbg('[OdradekGJS] using cached gjsSelected (single fallback)');
             buildGjsChip([gjsSelected]);
         } else {
-            console.log('[OdradekGJS] no selection available');
+            dbg('[OdradekGJS] no selection available');
         }
     }
 
@@ -823,7 +837,10 @@
         // Manual POST SSE via fetch + ReadableStream
         fetch(CHAT_URL, {
             method:  'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.ODRADEK_CSRF_TOKEN || '',
+            },
             body:    JSON.stringify(payload),
         }).then(res => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -994,7 +1011,7 @@
 
                         const ctype = selected.get('type') || '';
                         const html  = data.args.html || '';
-                        console.log('[OdradekGJS] update_grapesjs_component — idx:', idx, 'ctype:', ctype, 'html len:', html.length, 'preview:', html.slice(0, 120));
+                        dbg('[OdradekGJS] update_grapesjs_component — idx:', idx, 'ctype:', ctype, 'html len:', html.length, 'preview:', html.slice(0, 120));
 
                         if (!html) throw new Error('AI returned empty HTML — nothing to apply');
 
@@ -1030,7 +1047,7 @@
                 if (mutatingTools.has(data.toolName)) didMutate = true;
                 // Handle client-side tools inside a batch (e.g. navigate_mautic)
                 if (data.toolName === 'navigate_mautic' && data.args && data.args.path) {
-                    iframe.src = data.args.path.startsWith('/') ? data.args.path : '/' + data.args.path;
+                    navigateIframe(data.args.path);
                 }
 
             } else if (event === 'batch_done') {

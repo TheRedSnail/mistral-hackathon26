@@ -10,6 +10,7 @@ use Mautic\CoreBundle\Helper\CoreParametersHelper;
 use Mautic\EmailBundle\Model\EmailModel;
 use Mautic\LeadBundle\Model\LeadModel;
 use Mautic\LeadBundle\Model\ListModel;
+use Mautic\PageBundle\Model\PageModel;
 use MauticPlugin\GrapesJsBuilderBundle\Entity\GrapesJsBuilder;
 use MauticPlugin\GrapesJsBuilderBundle\Model\GrapesJsBuilderModel;
 
@@ -25,6 +26,7 @@ class MauticToolExecutor
         private readonly MistralClient        $mistralClient,
         private readonly GeminiClient         $geminiClient,
         private readonly CoreParametersHelper $parametersHelper,
+        private readonly PageModel            $pageModel,
     ) {}
 
     public function execute(string $tool, array $args): array
@@ -69,7 +71,12 @@ class MauticToolExecutor
                 'create_asset_category' => $this->createAssetCategory($args),
                 'generate_image_asset'  => $this->generateImageAsset($args),
                 'update_asset'          => $this->updateAsset($args),
-                default                        => ['success' => false, 'error' => "Unknown tool: {$tool}"],
+                'list_page_themes' => $this->listPageThemes(),
+                'list_pages'       => $this->listPages($args),
+                'get_page'         => $this->getPage($args),
+                'create_page'      => $this->createPage($args),
+                'update_page'      => $this->updatePage($args),
+                default            => ['success' => false, 'error' => "Unknown tool: {$tool}"],
             };
         } catch (\Throwable $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -80,7 +87,7 @@ class MauticToolExecutor
 
     private function listContacts(array $args): array
     {
-        $limit  = (int) ($args['limit'] ?? 20);
+        $limit  = min((int) ($args['limit'] ?? 20), 200);
         $search = $args['search'] ?? '';
 
         $options = [
@@ -181,7 +188,7 @@ class MauticToolExecutor
 
     private function listEmails(array $args): array
     {
-        $limit  = (int) ($args['limit'] ?? 20);
+        $limit  = min((int) ($args['limit'] ?? 20), 200);
         $search = $args['search'] ?? '';
 
         $emails = $this->emailModel->getEntities([
@@ -277,7 +284,7 @@ class MauticToolExecutor
         }
 
         // customHtml is the fallback HTML used for sending before the builder compiles the MJML
-        $email->setCustomHtml($this->wrapEmailBody($args['subject'], $body));
+        $email->setCustomHtml($this->wrapEmailBody($args['subject'], $this->sanitizeEmailHtml($body)));
         $email->setEmailType('template');
         $this->emailModel->saveEntity($email);
 
@@ -298,6 +305,23 @@ class MauticToolExecutor
             'message' => "Email \"{$args['name']}\" created with ID #{$email->getId()}."
                 . ($template ? " (theme: {$template})" : ''),
         ];
+    }
+
+    /**
+     * Strips dangerous HTML from AI-generated email bodies.
+     * Removes scripts, style blocks, event handlers, and javascript: hrefs
+     * while preserving structural elements (headings, paragraphs, links, lists).
+     */
+    private function sanitizeEmailHtml(string $html): string
+    {
+        // Strip <script> and <style> tags with their contents
+        $html = preg_replace('/<script\b[^>]*>[\s\S]*?<\/script>/i', '', $html);
+        $html = preg_replace('/<style\b[^>]*>[\s\S]*?<\/style>/i', '', $html);
+        // Strip on* event handler attributes (e.g. onclick, onload, onerror)
+        $html = preg_replace('/\s+on\w+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]*)/i', '', $html);
+        // Replace javascript: href values with #
+        $html = preg_replace('/href\s*=\s*["\']?\s*javascript:[^"\'>\s]*/i', 'href="#"', $html);
+        return $html;
     }
 
     /**
@@ -352,7 +376,18 @@ HTML;
      */
     private function loadThemeMjml(string $template, string $body = ''): ?string
     {
-        $themeDir = dirname(__DIR__, 3) . '/themes/' . $template . '/html';
+        // Allowlist: only alphanumeric, dash, underscore — no path traversal
+        if (!preg_match('/^[a-zA-Z0-9_\-]+$/', $template)) {
+            return null;
+        }
+        $themesDir = realpath(dirname(__DIR__, 3) . '/themes');
+        if ($themesDir === false) {
+            return null;
+        }
+        $themeDir = realpath($themesDir . '/' . $template . '/html');
+        if ($themeDir === false || !str_starts_with($themeDir, $themesDir . DIRECTORY_SEPARATOR)) {
+            return null;
+        }
 
         // GrapesJS themes use either email.mjml.twig or email.html.twig containing MJML
         foreach (['email.mjml.twig', 'email.html.twig'] as $filename) {
@@ -384,6 +419,7 @@ HTML;
             $content = preg_replace('/\{\{.*?\}\}/s', '', $content);
 
             // Inject AI body into the first <mj-text> block with substantial content (>80 plain chars)
+            $body = $this->sanitizeEmailHtml($body);
             if (!empty($body)) {
                 preg_match_all('/(<mj-text\b[^>]*>)([\s\S]*?)(<\/mj-text>)/i', $content, $m, PREG_OFFSET_CAPTURE);
                 foreach ($m[2] as $idx => $match) {
@@ -419,7 +455,7 @@ HTML;
             $email->setSubject($params['subject']);
         }
         if (isset($params['body'])) {
-            $body = $params['body'];
+            $body = $this->sanitizeEmailHtml($params['body']);
             $email->setCustomHtml($this->wrapEmailBody($email->getSubject() ?? '', $body));
 
             // Also re-inject the body into the MJML template if one exists
@@ -480,7 +516,7 @@ HTML;
     {
         $emailId = (int) $args['id'];
         $idx     = (int) $args['componentIndex'];
-        $html    = $args['html'] ?? '';
+        $html    = $this->sanitizeEmailHtml($args['html'] ?? '');
 
         $email = $this->emailModel->getEntity($emailId);
         if (!$email) {
@@ -514,7 +550,7 @@ HTML;
 
     private function listCampaigns(array $args): array
     {
-        $limit  = (int) ($args['limit'] ?? 20);
+        $limit  = min((int) ($args['limit'] ?? 20), 200);
         $search = $args['search'] ?? '';
 
         $campaigns = $this->campaignModel->getEntities([
@@ -560,7 +596,7 @@ HTML;
 
     private function listSegments(array $args): array
     {
-        $limit  = (int) ($args['limit'] ?? 20);
+        $limit  = min((int) ($args['limit'] ?? 20), 200);
         $search = $args['search'] ?? '';
 
         $segments = $this->listModel->getEntities([
@@ -1279,6 +1315,146 @@ HTML;
             'success' => true,
             'asset'   => ['id' => $asset->getId(), 'title' => $asset->getTitle()],
             'message' => "Asset #{$args['id']} updated.",
+        ];
+    }
+
+    // ── Landing Pages ─────────────────────────────────────────────────────────
+
+    private function listPageThemes(): array
+    {
+        $themesDir = dirname(__DIR__, 3) . '/themes';
+        if (!is_dir($themesDir)) {
+            return ['success' => false, 'error' => 'Themes directory not found at: ' . $themesDir];
+        }
+
+        $themes = [];
+        foreach (glob($themesDir . '/*/config.json') ?: [] as $configFile) {
+            $config   = json_decode(file_get_contents($configFile), true) ?? [];
+            $features = $config['features'] ?? [];
+            $builders = $config['builder']  ?? [];
+
+            if (!in_array('page', $features, true)) {
+                continue;
+            }
+            if (!in_array('grapesjsbuilder', $builders, true)) {
+                continue;
+            }
+
+            $themes[] = [
+                'name'  => basename(dirname($configFile)),
+                'label' => $config['name'] ?? basename(dirname($configFile)),
+            ];
+        }
+
+        return ['success' => true, 'themes' => $themes, 'count' => count($themes)];
+    }
+
+    private function listPages(array $args): array
+    {
+        $results = $this->pageModel->getEntities([
+            'filter'     => ['string' => $args['search'] ?? ''],
+            'limit'      => min((int) ($args['limit'] ?? 20), 100),
+            'start'      => 0,
+            'orderBy'    => 'p.title',
+            'orderByDir' => 'asc',
+        ]);
+
+        $pages = [];
+        foreach ($results as $page) {
+            $pages[] = [
+                'id'          => $page->getId(),
+                'title'       => $page->getTitle(),
+                'alias'       => $page->getAlias(),
+                'isPublished' => $page->isPublished(),
+                'template'    => $page->getTemplate(),
+                'publicUrl'   => '/p/' . $page->getAlias(),
+            ];
+        }
+
+        return ['success' => true, 'pages' => $pages, 'count' => count($pages)];
+    }
+
+    private function getPage(array $args): array
+    {
+        $page = $this->pageModel->getEntity((int) $args['id']);
+        if (!$page) {
+            return ['success' => false, 'error' => "Page #{$args['id']} not found."];
+        }
+
+        return ['success' => true, 'page' => [
+            'id'              => $page->getId(),
+            'title'           => $page->getTitle(),
+            'alias'           => $page->getAlias(),
+            'template'        => $page->getTemplate(),
+            'customHtml'      => mb_substr($page->getCustomHtml() ?? '', 0, 2000),
+            'metaDescription' => $page->getMetaDescription(),
+            'isPublished'     => $page->isPublished(),
+            'hits'            => $page->getHits(),
+            'publicUrl'       => '/p/' . $page->getAlias(),
+        ]];
+    }
+
+    private function createPage(array $args): array
+    {
+        /** @var \Mautic\PageBundle\Entity\Page $page */
+        $page = $this->pageModel->getEntity();
+        $page->setTitle($args['title']);
+
+        $alias = trim($args['alias'] ?? '');
+        if ($alias === '') {
+            $alias = strtolower(preg_replace('/[^a-z0-9]+/i', '-', $args['title']));
+            $alias = trim($alias, '-');
+        }
+        $page->setAlias($alias);
+
+        if (!empty($args['template'])) {
+            $page->setTemplate($args['template']);
+        }
+
+        $page->setCustomHtml($args['content'] ?? '');
+
+        if (!empty($args['metaDescription'])) {
+            $page->setMetaDescription($args['metaDescription']);
+        }
+
+        $page->setIsPublished($args['isPublished'] ?? true);
+
+        $this->pageModel->saveEntity($page);
+
+        return [
+            'success' => true,
+            'page'    => [
+                'id'        => $page->getId(),
+                'title'     => $page->getTitle(),
+                'alias'     => $page->getAlias(),
+                'publicUrl' => '/p/' . $page->getAlias(),
+            ],
+            'message' => "Landing page \"{$page->getTitle()}\" created (ID #{$page->getId()}). "
+                . "Public URL: /p/{$page->getAlias()}.",
+        ];
+    }
+
+    private function updatePage(array $args): array
+    {
+        $page = $this->pageModel->getEntity((int) $args['id']);
+        if (!$page) {
+            return ['success' => false, 'error' => "Page #{$args['id']} not found."];
+        }
+
+        $p = $args['params'] ?? [];
+        if (isset($p['title']))           { $page->setTitle($p['title']); }
+        if (isset($p['content']))         { $page->setCustomHtml($p['content']); }
+        if (isset($p['template']))        { $page->setTemplate($p['template']); }
+        if (isset($p['alias']))           { $page->setAlias($p['alias']); }
+        if (isset($p['metaDescription'])) { $page->setMetaDescription($p['metaDescription']); }
+        if (isset($p['isPublished']))     { $page->setIsPublished((bool) $p['isPublished']); }
+
+        $this->pageModel->saveEntity($page);
+
+        return [
+            'success' => true,
+            'message' => "Page #{$args['id']} updated.",
+            'page'    => ['id' => $page->getId(), 'title' => $page->getTitle()],
         ];
     }
 }
