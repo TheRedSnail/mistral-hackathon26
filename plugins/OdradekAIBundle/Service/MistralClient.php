@@ -44,6 +44,7 @@ class MistralClient
             'messages'            => $messages,
             'stream'              => false,
             'parallel_tool_calls' => true,
+            'max_tokens'          => (int) ($this->parametersHelper->get('odradek_ai_max_tokens') ?: 8000),
         ];
 
         if (!empty($tools)) {

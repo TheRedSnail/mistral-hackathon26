@@ -63,6 +63,7 @@
 
 <script>
     window.ODRADEK_CHAT_URL = {{ chatUrl|json_encode|raw }};
+    window.ODRADEK_CSRF_TOKEN = {{ csrfToken|json_encode|raw }};
 </script>
 <script src="{{ assetBase }}/js/odradek-ai.js"></script>
 </body>

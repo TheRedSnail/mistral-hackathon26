@@ -109,6 +109,7 @@
                 <button class="quick-action-btn" data-action="compliance"  title="Run an EU AI Act + GDPR compliance audit on a campaign">📋 Compliance Audit</button>
                 <button class="quick-action-btn" data-action="sentiment"   title="Analyze a contact's sentiment and engagement signals">💬 Contact Sentiment</button>
                 <button class="quick-action-btn" data-action="health"      title="Score a contact's engagement health and churn risk">❤️ Health Score</button>
+                <button class="quick-action-btn" data-action="page"       title="Build a landing page from your description">🌐 Build Page</button>
             </div>
 
             <!-- ── Inline action drawer (replaces window.prompt popups) ── -->
@@ -144,6 +145,7 @@
 
 <script>
     window.ODRADEK_CHAT_URL = {{ chatUrl|json_encode|raw }};
+    window.ODRADEK_CSRF_TOKEN = {{ csrfToken|json_encode|raw }};
 </script>
 <script src="{{ assetBase }}/js/odradek-ai.js"></script>
 </body>

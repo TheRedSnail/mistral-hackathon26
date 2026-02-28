@@ -9,10 +9,11 @@ use Mautic\CoreBundle\Helper\CoreParametersHelper;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 
 class AiController extends CommonController
 {
-    public function indexAction(Request $request, CoreParametersHelper $params): Response
+    public function indexAction(Request $request, CoreParametersHelper $params, CsrfTokenManagerInterface $csrfTokenManager): Response
     {
         $enabled = (bool) $params->get('odradek_ai_enabled');
         $apiKey  = (string) $params->get('odradek_ai_api_key');
@@ -43,12 +44,27 @@ class AiController extends CommonController
         // layout can use the full viewport.
         $twig = $this->container->get('twig');
 
+        $csrfToken = $csrfTokenManager->getToken('odradek_ai_chat')->getValue();
+
         $html = $twig->render('@OdradekAI/Ai/index.html.twig', [
             'assetBase'  => '/plugins/OdradekAIBundle/Assets',
             'model'      => $model,
             'chatUrl'    => $this->generateUrl('odradek_ai_chat'),
+            'csrfToken'  => $csrfToken,
         ]);
 
-        return new Response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8']);
+        return new Response($html, 200, [
+            'Content-Type'            => 'text/html; charset=UTF-8',
+            'X-Content-Type-Options'  => 'nosniff',
+            'X-Frame-Options'         => 'SAMEORIGIN',
+            'Referrer-Policy'         => 'strict-origin-when-cross-origin',
+            'Content-Security-Policy' =>
+                "default-src 'self'; " .
+                "script-src 'self' 'unsafe-inline'; " .
+                "style-src 'self' 'unsafe-inline'; " .
+                "img-src 'self' data:; " .
+                "frame-src 'self'; " .
+                "connect-src 'self';",
+        ]);
     }
 }
