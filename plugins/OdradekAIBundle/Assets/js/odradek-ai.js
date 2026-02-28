@@ -388,6 +388,26 @@
         return ctx;
     }
 
+    // ── Empty state ──────────────────────────────────────────────────────────
+    function renderEmptyState() {
+        if (messagesEl.children.length === 0) {
+            const el = document.createElement('div');
+            el.id = 'odradek-empty-state';
+            el.innerHTML = `
+                <div class="empty-state-icon">&#11041;</div>
+                <div class="empty-state-title">Odradek AI</div>
+                <div class="empty-state-sub">Ask anything or use the quick actions below</div>`;
+            messagesEl.appendChild(el);
+        }
+    }
+
+    function clearEmptyState() {
+        const es = document.getElementById('odradek-empty-state');
+        if (es) es.remove();
+    }
+
+    renderEmptyState();
+
     // ── Message rendering ────────────────────────────────────────────────────
     function appendMessage(type, content, extra) {
         const el = document.createElement('div');
@@ -439,6 +459,7 @@
             el.innerHTML = `<strong>Error:</strong> ${escHtml(content)}`;
         }
 
+        clearEmptyState();
         messagesEl.appendChild(el);
         messagesEl.scrollTop = messagesEl.scrollHeight;
         return el;
@@ -475,19 +496,98 @@
     function summarizeResult(result) {
         if (result.message) return result.message;
         if (result.error)   return '✗ ' + result.error;
-        if (result.contacts) return `${result.count} contact(s) found`;
-        if (result.emails)   return `${result.count} email(s) found`;
+        if (result.contacts)  return `${result.count} contact(s) found`;
+        if (result.emails)    return `${result.count} email(s) found`;
         if (result.campaigns) return `${result.count} campaign(s) found`;
-        if (result.segments) return `${result.count} segment(s) found`;
-        if (result.reports)  return `${result.count} report(s) found`;
+        if (result.segments)  return `${result.count} segment(s) found`;
+        if (result.reports)   return `${result.count} report(s) found`;
+        // Ethics analysis (ethics_score) vs contact sentiment (sentiment field)
+        if (result.analysis) {
+            if (result.analysis.sentiment !== undefined) {
+                const score = result.analysis.sentiment_score;
+                const level = result.analysis.sentiment;
+                return score !== undefined
+                    ? `Sentiment: ${level} (${score}/100) — see AI response for details`
+                    : `Sentiment: ${level} — see AI response for details`;
+            }
+            const score = result.analysis.ethics_score;
+            return score !== undefined
+                ? `Ethics score: ${score}/100 — see AI response for details`
+                : 'Ethics analysis complete — see AI response for details';
+        }
+        // Campaign performance insights
+        if (result.insights) return 'Campaign analysis complete — see AI response for details';
+        // Journey plan
+        if (result.journey)  return `Journey plan ready: ${result.journey.journey_name || 'see AI response'}`;
+        // Compliance report
+        if (result.report) {
+            const rate = result.report.compliance_rate;
+            const status = result.report.overall_compliance;
+            return rate !== undefined
+                ? `Compliance: ${status} (${rate}%) across ${result.emails_audited} email(s)`
+                : 'Compliance report ready — see AI response for details';
+        }
+        // Contact health score
+        if (result.score_data) {
+            const score = result.score_data.health_score;
+            const level = result.score_data.risk_level;
+            return score !== undefined
+                ? `Health score: ${score}/100 — ${level}`
+                : 'Health score ready — see AI response for details';
+        }
         return JSON.stringify(result).slice(0, 80);
     }
+
+    // ── Quick-action buttons ─────────────────────────────────────────────────
+    const quickBtns = document.querySelectorAll('.quick-action-btn');
+
+    quickBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (state.busy) return;
+            const action = btn.dataset.action;
+            let prompt = '';
+
+            if (action === 'ethics') {
+                const id = window.prompt('Enter the email ID to check (or leave blank to paste content):');
+                if (id === null) return; // cancelled
+                prompt = id.trim()
+                    ? `Check email #${id.trim()} for dark patterns and EU AI Act compliance issues`
+                    : 'Check the email I\'m about to share for dark patterns and EU AI Act compliance issues';
+            } else if (action === 'performance') {
+                const id = window.prompt('Enter the campaign ID to analyze:');
+                if (!id) return;
+                prompt = `Analyze the performance of campaign #${id.trim()} and give me actionable insights`;
+            } else if (action === 'journey') {
+                const goal = window.prompt('Describe your campaign goal (e.g. "welcome new subscribers", "re-engage cold leads"):');
+                if (!goal) return;
+                prompt = `Suggest a 3-email journey for: ${goal.trim()}`;
+            } else if (action === 'compliance') {
+                const id = window.prompt('Enter the campaign ID to audit for EU AI Act + GDPR compliance:');
+                if (!id) return;
+                prompt = `Generate a full EU AI Act and GDPR compliance report for campaign #${id.trim()}`;
+            } else if (action === 'sentiment') {
+                const id = window.prompt('Enter the contact ID to analyze sentiment for:');
+                if (!id) return;
+                prompt = `Analyze the sentiment and engagement signals for contact #${id.trim()}`;
+            } else if (action === 'health') {
+                const id = window.prompt('Enter the contact ID to score:');
+                if (!id) return;
+                prompt = `Score the engagement health and churn risk of contact #${id.trim()}`;
+            }
+
+            if (prompt) {
+                inputEl.value = prompt;
+                sendUserMessage();
+            }
+        });
+    });
 
     // ── Send / chat ──────────────────────────────────────────────────────────
     function setBusy(busy) {
         state.busy       = busy;
         inputEl.disabled = busy;
         sendBtn.disabled = busy;
+        quickBtns.forEach(b => { b.disabled = busy; });
     }
 
     function setStatus(text) {
@@ -887,6 +987,7 @@
         messagesEl.innerHTML = '';
         chipsEl.innerHTML    = '';
         setStatus('');
+        renderEmptyState();
     });
 
     // ── Helpers ──────────────────────────────────────────────────────────────

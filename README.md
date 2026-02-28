@@ -1,192 +1,36 @@
-# Odradek AI — Mautic Plugin
-
-A Mautic plugin that embeds a Mistral AI assistant directly into the Mautic marketing automation platform. The AI can autonomously manage contacts, emails, campaigns, segments, and reports through natural language — all without leaving Mautic.
-
----
-
-## Features
-
-- **Split-screen UI** — Mautic runs in an iframe above; the AI chat panel sits below. The divider is draggable to resize each pane.
-- **Agentic tool use** — The AI calls Mistral's function-calling API to perform real actions: creating contacts, updating email assets, querying campaigns, and more.
-- **Plan Mode** — Before executing, the AI generates a step-by-step plan for you to review and approve. No actions run until you click "Approve & Execute".
-- **Context capture** — Pin the current Mautic page or click any element inside the iframe to attach it as context for the AI.
-- **Live navigation** — The AI can navigate the Mautic iframe to relevant pages as part of its workflow.
-- **Streaming responses** — Replies and tool progress stream in real time via Server-Sent Events.
-
----
-
-## Requirements
-
-- Docker & Docker Compose
-- A [Mistral AI API key](https://console.mistral.ai/)
-
----
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
 
-### 1. Start the stack
+First, run the development server:
 
 ```bash
-docker compose up -d
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-This starts:
-- **MySQL 8** — Mautic's database
-- **Mautic 5** (Apache) — available at `http://localhost:8080`
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-The plugin directory is volume-mounted, so PHP changes take effect immediately.
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-### 2. Install & enable the plugin
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-1. Open `http://localhost:8080` and complete the Mautic setup wizard.
-2. Go to **Settings → Plugins** and click **Install/Upgrade Plugins**.
-3. The **Odradek AI** plugin will appear in the list — enable it.
+## Learn More
 
-### 3. Configure the plugin
+To learn more about Next.js, take a look at the following resources:
 
-Go to **Settings → Configuration → AI Settings** and fill in:
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
 
-| Field | Description |
-|---|---|
-| **API Key** | Your Mistral API key (`sk-...`) |
-| **Model** | `mistral-large-latest` (default), `mistral-small-latest`, or `codestral-latest` |
-| **Enabled** | Toggle to activate the plugin |
-| **Max Tokens** | Maximum tokens per response (default: 8000) |
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
-### 4. Open the AI assistant
+## Deploy on Vercel
 
-Navigate to **Admin → Odradek AI** in the sidebar (or go to `/odradek/ai`).
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
----
-
-## How It Works
-
-### Split-screen interface
-
-The UI is a full-page standalone view (no Mautic chrome) divided into two panes:
-
-- **Top** — Mautic rendered in a sandboxed iframe with back/forward navigation
-- **Bottom** — AI chat panel with message history, context chips, and input
-
-### Talking to the AI
-
-Type a message and press **Enter** (Shift+Enter for a new line). The AI responds and automatically calls tools to fulfil your request.
-
-**Example prompts:**
-- *"List all contacts from Acme Corp"*
-- *"Create an email called 'Welcome' with subject 'Hello\!' and send it to the newsletter segment"*
-- *"Show me the top 5 campaigns by name"*
-- *"Delete contact #42"* — the AI will ask for confirmation before deleting
-
-### Plan Mode
-
-Enable the **Plan Mode** toggle before sending a message. The AI will generate a numbered execution plan and pause. Review the steps, then click **Approve & Execute** to proceed or **Cancel** to abort.
-
-### Context capture
-
-| Button | What it does |
-|---|---|
-| **Context** | Captures the current iframe URL, page title, and visible text and attaches it as a chip |
-| **Select** | Enters element-picker mode — hover to highlight, click to capture an element's text and CSS path |
-
-Chips appear above the input box and are included in every subsequent message. Click × on a chip to remove it.
-
----
-
-## Available Tools
-
-### Contacts
-| Tool | Description |
-|---|---|
-| `list_contacts` | List contacts with optional search filter |
-| `get_contact` | Fetch full details for a contact by ID |
-| `create_contact` | Create a new contact |
-| `update_contact` | Update fields on an existing contact |
-| `delete_contact` | Permanently delete a contact (requires explicit user confirmation) |
-
-### Emails
-| Tool | Description |
-|---|---|
-| `list_emails` | List email assets |
-| `get_email` | Fetch a single email asset by ID |
-| `create_email` | Create a new email asset |
-| `update_email` | Update an existing email asset |
-
-### Campaigns
-| Tool | Description |
-|---|---|
-| `list_campaigns` | List campaigns |
-| `get_campaign` | Fetch a campaign by ID |
-
-### Segments
-| Tool | Description |
-|---|---|
-| `list_segments` | List contact segments |
-| `create_segment` | Create a new segment |
-
-### Reports
-| Tool | Description |
-|---|---|
-| `list_reports` | List all available reports |
-| `get_report_data` | Fetch data rows from a report by ID |
-
-### Navigation
-| Tool | Description |
-|---|---|
-| `navigate_mautic` | Navigate the Mautic iframe to any path (e.g. `/s/contacts/view/42`) |
-| `get_page_info` | Read the current iframe URL and page title |
-
----
-
-## Project Structure
-
-```
-├── docker-compose.yml
-└── plugins/
-    └── OdradekAIBundle/
-        ├── OdradekAIBundle.php
-        ├── Config/
-        │   ├── config.php               # Routes, menu, parameters
-        │   └── services.php             # Autowired service registration
-        ├── Controller/
-        │   ├── AiController.php         # Serves the split-screen UI
-        │   └── ChatController.php       # SSE chat endpoint + agentic loop
-        ├── Service/
-        │   ├── MistralClient.php        # Mistral API wrapper
-        │   ├── ToolDefinitions.php      # Function-calling schemas
-        │   └── MauticToolExecutor.php   # Executes tools against Mautic models
-        ├── Form/Type/ConfigType.php     # Settings form
-        ├── EventListener/ConfigSubscriber.php
-        ├── Assets/
-        │   ├── css/odradek-ai.css       # Dark-theme split-screen styles
-        │   └── js/odradek-ai.js         # Frontend: SSE, iframe, plan mode, context
-        └── Resources/views/Ai/
-            ├── index.html.twig          # Main split-screen template
-            └── not_enabled.html.twig    # Shown when plugin is not configured
-```
-
----
-
-## Development
-
-Clear Mautic's cache after changes to PHP config or service definitions:
-
-```bash
-docker compose exec mautic php bin/console cache:clear
-```
-
-Shell into the Mautic container:
-
-```bash
-docker compose exec mautic bash
-```
-
-CSS and JS changes in `Assets/` are picked up immediately — no build step required.
-
----
-
-## Built With
-
-- [Mautic 5](https://www.mautic.org/) — open-source marketing automation
-- [Mistral AI](https://mistral.ai/) — LLM with native function calling
-- Symfony (via Mautic) — dependency injection, routing, HTTP client
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

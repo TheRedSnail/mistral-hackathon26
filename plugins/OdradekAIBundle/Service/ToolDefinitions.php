@@ -350,6 +350,50 @@ class ToolDefinitions
                 ],
             ],
 
+            // ── Compliance, Sentiment & Health ────────────────────────────────
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'generate_compliance_report',
+                    'description' => 'Audit all emails in a campaign against EU AI Act and GDPR articles. Returns a pass/warning/fail status per regulation article, a compliance rate (0-100), critical issues, and top recommendations.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'campaign_id' => ['type' => 'integer', 'description' => 'The Mautic campaign ID to audit.'],
+                        ],
+                        'required' => ['campaign_id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'analyze_contact_sentiment',
+                    'description' => 'Analyze the sentiment and engagement signals of a contact based on their profile data and activity. Returns sentiment (positive/neutral/negative), a score (0-100), key signals, topics of interest, engagement level, and a recommended next action.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'contact_id' => ['type' => 'integer', 'description' => 'The Mautic contact ID to analyze.'],
+                        ],
+                        'required' => ['contact_id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'score_contact_health',
+                    'description' => 'Score a contact\'s engagement health (0-100) based on activity recency, lead score, and segment membership. Returns risk_level (healthy/moderate/at_risk/churning), strengths, concerns, and a recommended action.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'contact_id' => ['type' => 'integer', 'description' => 'The Mautic contact ID to score.'],
+                        ],
+                        'required' => ['contact_id'],
+                    ],
+                ],
+            ],
+
             // ── Navigation / Page Context ─────────────────────────────────────
             [
                 'type'     => 'function',

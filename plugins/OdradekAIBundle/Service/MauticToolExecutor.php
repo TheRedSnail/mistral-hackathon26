@@ -51,10 +51,13 @@ class MauticToolExecutor
                 'create_segment' => $this->createSegment($args),
                 'list_reports'              => $this->listReports(),
                 'get_report_data'           => $this->getReportData($args),
-                'analyze_email_ethics'      => $this->analyzeEmailEthics($args),
+                'analyze_email_ethics'         => $this->analyzeEmailEthics($args),
                 'analyze_campaign_performance' => $this->analyzeCampaignPerformance($args),
-                'suggest_campaign_journey'  => $this->suggestCampaignJourney($args),
-                default                     => ['success' => false, 'error' => "Unknown tool: {$tool}"],
+                'suggest_campaign_journey'     => $this->suggestCampaignJourney($args),
+                'generate_compliance_report'   => $this->generateComplianceReport($args),
+                'analyze_contact_sentiment'    => $this->analyzeContactSentiment($args),
+                'score_contact_health'         => $this->scoreContactHealth($args),
+                default                        => ['success' => false, 'error' => "Unknown tool: {$tool}"],
             };
         } catch (\Throwable $e) {
             return ['success' => false, 'error' => $e->getMessage()];
@@ -772,6 +775,202 @@ HTML;
         return [
             'success' => true,
             'journey' => $journey,
+        ];
+    }
+
+    private function generateComplianceReport(array $args): array
+    {
+        $campaign = $this->campaignModel->getEntity((int) $args['campaign_id']);
+        if (!$campaign) {
+            return ['success' => false, 'error' => "Campaign #{$args['campaign_id']} not found."];
+        }
+
+        // Collect all email content from campaign events
+        $emailsSummary = [];
+        foreach ($campaign->getEvents() as $event) {
+            if ($event->getType() === 'email.send') {
+                $props   = $event->getProperties();
+                $emailId = $props['email'] ?? null;
+                if ($emailId) {
+                    $email = $this->emailModel->getEntity((int) $emailId);
+                    if ($email) {
+                        $content         = strip_tags($email->getCustomHtml() ?: $email->getPlainText() ?: '');
+                        $emailsSummary[] = [
+                            'id'              => $email->getId(),
+                            'name'            => $email->getName(),
+                            'subject'         => $email->getSubject(),
+                            'body_preview'    => mb_substr($content, 0, 800),
+                            'has_unsubscribe' => stripos($content, 'unsubscribe') !== false,
+                            'has_sender_info' => !empty($email->getFromAddress()),
+                        ];
+                    }
+                }
+            }
+        }
+
+        if (empty($emailsSummary)) {
+            return ['success' => false, 'error' => 'No email assets found in this campaign to audit.'];
+        }
+
+        $campaignContext = json_encode([
+            'campaign_name' => $campaign->getName(),
+            'emails'        => $emailsSummary,
+        ], JSON_PRETTY_PRINT);
+
+        $prompt = "You are an EU AI Act and GDPR compliance auditor for marketing automation. "
+            . "Audit the following campaign emails against these regulatory articles.\n\n"
+            . "For each article, return pass/warning/fail based on the email content:\n"
+            . "1. EU AI Act Art. 13 – Transparency: Are recipients informed AI is involved in targeting?\n"
+            . "2. EU AI Act Art. 14 – Human Oversight: Is there evidence of human review in the process?\n"
+            . "3. GDPR Art. 7 – Consent: Is there a clear unsubscribe / opt-out mechanism?\n"
+            . "4. GDPR Art. 13 – Information: Is sender identity clearly disclosed?\n"
+            . "5. GDPR Art. 22 – Automated Decisions: Are profiling or scoring decisions disclosed?\n"
+            . "6. Dark Patterns: Are there urgency, scarcity, or guilt-tripping tactics?\n"
+            . "7. Subject Line Honesty: Are subject lines accurate and non-deceptive?\n\n"
+            . "Respond ONLY with valid JSON:\n"
+            . '{"overall_compliance":"pass|warning|fail","compliance_rate":85,"articles":[{"article":"...","status":"pass|warning|fail","finding":"...","recommendation":"..."}],"critical_issues":["..."],"top_recommendations":["..."]}'
+            . "\n\nCampaign data:\n" . $campaignContext;
+
+        $response = $this->mistralClient->complete([
+            ['role' => 'user', 'content' => $prompt],
+        ]);
+
+        $raw = $response['content'] ?? '{}';
+        if (preg_match('/\{.*\}/s', $raw, $m)) {
+            $raw = $m[0];
+        }
+        $report = json_decode($raw, true) ?? ['error' => 'Could not generate compliance report.'];
+
+        return [
+            'success'        => true,
+            'campaign_name'  => $campaign->getName(),
+            'emails_audited' => count($emailsSummary),
+            'report'         => $report,
+        ];
+    }
+
+    private function analyzeContactSentiment(array $args): array
+    {
+        $lead = $this->leadModel->getEntity((int) $args['contact_id']);
+        if (!$lead) {
+            return ['success' => false, 'error' => "Contact #{$args['contact_id']} not found."];
+        }
+
+        $fields = $lead->getProfileFields();
+
+        // Collect meaningful text fields from the contact profile
+        $textData        = [];
+        $textFieldNames  = ['notes', 'comments', 'about', 'description', 'message', 'feedback', 'title', 'jobtitle', 'job_title', 'interests', 'industry'];
+        foreach ($fields as $key => $value) {
+            if (!empty($value) && is_string($value) && mb_strlen($value) > 3) {
+                if (in_array(strtolower($key), $textFieldNames, true) || mb_strlen($value) > 20) {
+                    $textData[$key] = mb_substr((string) $value, 0, 200);
+                }
+            }
+        }
+
+        $lastActive       = $lead->getLastActive();
+        $daysSinceActive  = $lastActive ? (int) (new \DateTime())->diff($lastActive)->days : null;
+
+        $contactSummary = [
+            'name'              => trim(($fields['firstname'] ?? '') . ' ' . ($fields['lastname'] ?? '')),
+            'company'           => $fields['company'] ?? '',
+            'lead_score'        => $lead->getPoints(),
+            'days_since_active' => $daysSinceActive,
+            'text_fields'       => $textData,
+        ];
+
+        if (empty($textData) && $lead->getPoints() === 0 && $daysSinceActive === null) {
+            return ['success' => false, 'error' => 'Contact has insufficient profile data or activity to analyze.'];
+        }
+
+        $prompt = "You are a CRM sentiment analysis expert. Analyze this marketing contact's profile data and infer their sentiment and engagement signals.\n\n"
+            . "Contact data:\n" . json_encode($contactSummary, JSON_PRETTY_PRINT) . "\n\n"
+            . "Based on available data (text fields, lead score, activity recency), determine:\n"
+            . "- Overall sentiment toward the brand/product\n"
+            . "- Key signals driving that sentiment\n"
+            . "- Visible topics or interests\n"
+            . "- Recommended next action\n\n"
+            . "Respond ONLY with valid JSON:\n"
+            . '{"sentiment":"positive|neutral|negative","confidence":0.8,"sentiment_score":72,"key_signals":["..."],"topics":["..."],"engagement_level":"high|medium|low|dormant","recommended_action":"..."}'
+            . "\n\nconfidence is 0–1, sentiment_score is 0–100 (0=very negative, 50=neutral, 100=very positive).";
+
+        $response = $this->mistralClient->complete([
+            ['role' => 'user', 'content' => $prompt],
+        ]);
+
+        $raw = $response['content'] ?? '{}';
+        if (preg_match('/\{.*\}/s', $raw, $m)) {
+            $raw = $m[0];
+        }
+        $analysis = json_decode($raw, true) ?? ['error' => 'Could not parse sentiment analysis.'];
+
+        return [
+            'success'      => true,
+            'contact_name' => $contactSummary['name'],
+            'contact_id'   => $lead->getId(),
+            'analysis'     => $analysis,
+        ];
+    }
+
+    private function scoreContactHealth(array $args): array
+    {
+        $lead = $this->leadModel->getEntity((int) $args['contact_id']);
+        if (!$lead) {
+            return ['success' => false, 'error' => "Contact #{$args['contact_id']} not found."];
+        }
+
+        $fields         = $lead->getProfileFields();
+        $now            = new \DateTime();
+        $lastActive     = $lead->getLastActive();
+        $dateAdded      = $lead->getDateAdded();
+        $daysSinceActive = $lastActive ? (int) $now->diff($lastActive)->days : null;
+        $daysSinceAdded  = $dateAdded  ? (int) $now->diff($dateAdded)->days  : null;
+
+        // Count segment memberships
+        $segmentCount = 0;
+        try {
+            $lists        = $lead->getLists();
+            $segmentCount = $lists ? count($lists) : 0;
+        } catch (\Throwable) {}
+
+        $contactData = [
+            'name'               => trim(($fields['firstname'] ?? '') . ' ' . ($fields['lastname'] ?? '')),
+            'email'              => $fields['email'] ?? '',
+            'lead_score'         => $lead->getPoints(),
+            'days_since_active'  => $daysSinceActive,
+            'days_since_created' => $daysSinceAdded,
+            'segment_count'      => $segmentCount,
+            'is_unsubscribed'    => (bool) ($fields['unsubscribed'] ?? false),
+        ];
+
+        $prompt = "You are a customer health scoring expert for marketing automation. "
+            . "Score this contact's engagement health based on the provided signals.\n\n"
+            . "Contact data:\n" . json_encode($contactData, JSON_PRETTY_PRINT) . "\n\n"
+            . "Scoring guidelines:\n"
+            . "- healthy (80-100): Active recently (<14 days), strong lead score, multiple segments\n"
+            . "- moderate (50-79): Some activity, moderate score, occasional engagement\n"
+            . "- at_risk (25-49): Inactive 30-90 days, low or declining score\n"
+            . "- churning (0-24): Inactive >90 days, near-zero score, unsubscribed or silent\n\n"
+            . "Respond ONLY with valid JSON:\n"
+            . '{"health_score":72,"risk_level":"healthy|moderate|at_risk|churning","explanation":"...","strengths":["..."],"concerns":["..."],"recommended_action":"..."}'
+            . "\n\nhealth_score is 0-100. Be concise and data-driven.";
+
+        $response = $this->mistralClient->complete([
+            ['role' => 'user', 'content' => $prompt],
+        ]);
+
+        $raw = $response['content'] ?? '{}';
+        if (preg_match('/\{.*\}/s', $raw, $m)) {
+            $raw = $m[0];
+        }
+        $scoreData = json_decode($raw, true) ?? ['error' => 'Could not generate health score.'];
+
+        return [
+            'success'      => true,
+            'contact_name' => $contactData['name'],
+            'contact_id'   => $lead->getId(),
+            'score_data'   => $scoreData,
         ];
     }
 }

@@ -252,6 +252,9 @@ class ChatController extends CommonController
                   . "Do not use [ASK]: for rhetorical questions, offers of further help, or confirmations after completing an action. ";
         $content .= "When context.selectedComponents is present, prefer update_grapesjs_component "
                   . "for in-place edits (translate, rewrite, replace copy) rather than update_email. ";
+        $content .= "When the user wants a regulatory audit or compliance report for a campaign, use generate_compliance_report — it checks EU AI Act and GDPR article by article. ";
+        $content .= "When asked about a contact's sentiment, feelings, attitude, or interest signals, use analyze_contact_sentiment. ";
+        $content .= "When asked about a contact's health, churn risk, engagement score, or whether they are at risk, use score_contact_health. ";
 
         if (!empty($context['url'])) {
             $title = $context['pageTitle'] ?? '';
