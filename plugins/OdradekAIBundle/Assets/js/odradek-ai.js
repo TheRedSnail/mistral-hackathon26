@@ -6,6 +6,9 @@
 (function () {
     'use strict';
 
+    // ── Panel mode (when embedded as bottom panel in Mautic pages) ──────────
+    const PANEL_MODE = !!window.ODRADEK_PANEL_MODE;
+
     // ── Debug logging (only when window.ODRADEK_DEBUG === true) ─────────────
     const DEBUG = window.ODRADEK_DEBUG === true;
     function dbg(...a)     { if (DEBUG) console.log(...a); }
@@ -52,16 +55,38 @@
         currentActivityCount: 0,    // badge count
     };
 
+    // ── Panel mode: receive page context from parent via postMessage ────────
+    let parentPageContext = null;
+    if (PANEL_MODE) {
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.type === 'odradek_page_context') {
+                parentPageContext = {
+                    url:         e.data.url   || '',
+                    title:       e.data.title || '',
+                    visibleText: e.data.visibleText || '',
+                };
+                // Auto-add page context chip on first reception
+                if (state.contextItems.length === 0 && parentPageContext.url) {
+                    addContextChip('page', parentPageContext.title || parentPageContext.url, {
+                        url:         parentPageContext.url,
+                        pageTitle:   parentPageContext.title,
+                        visibleText: parentPageContext.visibleText,
+                    });
+                }
+            }
+        });
+    }
+
     // ── Expand / collapse AI panel ───────────────────────────────────────────
     function expandAI() {
         aiPane.classList.add('ai-expanded');
-        dividerEl.classList.add('ai-visible');
+        if (dividerEl) dividerEl.classList.add('ai-visible');
         inputEl.focus();
     }
 
     function collapseAI() {
         aiPane.classList.remove('ai-expanded');
-        dividerEl.classList.remove('ai-visible');
+        if (dividerEl) dividerEl.classList.remove('ai-visible');
         aiPane.style.height = ''; // revert to CSS default (38px)
     }
 
@@ -78,76 +103,91 @@
     });
 
     // ── Drag-to-resize divider ───────────────────────────────────────────────
-    (function initDivider() {
-        let dragging = false;
-        let startY   = 0;
-        let startH   = 0;
+    if (!PANEL_MODE) {
+        (function initDivider() {
+            let dragging = false;
+            let startY   = 0;
+            let startH   = 0;
 
-        dividerEl.addEventListener('mousedown', (e) => {
-            dragging  = true;
-            startY    = e.clientY;
-            startH    = aiPane.getBoundingClientRect().height;
-            dividerEl.classList.add('dragging');
-            document.body.style.userSelect = 'none';
-            document.body.style.cursor     = 'ns-resize';
-            iframe.style.pointerEvents = 'none';
-        });
+            dividerEl.addEventListener('mousedown', (e) => {
+                dragging  = true;
+                startY    = e.clientY;
+                startH    = aiPane.getBoundingClientRect().height;
+                dividerEl.classList.add('dragging');
+                document.body.style.userSelect = 'none';
+                document.body.style.cursor     = 'ns-resize';
+                iframe.style.pointerEvents = 'none';
+            });
 
-        document.addEventListener('mousemove', (e) => {
-            if (!dragging) return;
-            const delta  = e.clientY - startY;           // positive = dragged down
-            const totalH = splitEl.getBoundingClientRect().height;
-            const newH   = Math.max(120, Math.min(totalH - 80, startH - delta));
-            aiPane.style.height = `${newH}px`;
-        });
+            document.addEventListener('mousemove', (e) => {
+                if (!dragging) return;
+                const delta  = e.clientY - startY;           // positive = dragged down
+                const totalH = splitEl.getBoundingClientRect().height;
+                const newH   = Math.max(120, Math.min(totalH - 80, startH - delta));
+                aiPane.style.height = `${newH}px`;
+            });
 
-        document.addEventListener('mouseup', () => {
-            if (!dragging) return;
-            dragging = false;
-            dividerEl.classList.remove('dragging');
-            document.body.style.userSelect = '';
-            document.body.style.cursor     = '';
-            iframe.style.pointerEvents     = '';
-        });
-    })();
+            document.addEventListener('mouseup', () => {
+                if (!dragging) return;
+                dragging = false;
+                dividerEl.classList.remove('dragging');
+                document.body.style.userSelect = '';
+                document.body.style.cursor     = '';
+                iframe.style.pointerEvents     = '';
+            });
+        })();
+    }
 
     // ── iframe navigation tracking ───────────────────────────────────────────
-    iframe.addEventListener('load', () => {
-        try {
-            const iDoc  = iframe.contentDocument || iframe.contentWindow.document;
-            const iWin  = iframe.contentWindow;
-            const url   = iWin.location.href;
-            urlDisplay.textContent = url;
-        } catch (_) {
-            urlDisplay.textContent = iframe.src;
-        }
-        // Reset binding state on every navigation; setupGjsTracking handles
-        // whether GrapesJS is actually present (no URL guard needed there).
-        gjsListenerReady = false;
-        gjsEditor        = null;
-        gjsSelected      = null;
-        gjsSelectedAll   = [];
-        clearGjsComponentChip();
-        setupGjsTracking();   // starts a fresh polling chain (cancels any stale one)
-    });
+    if (!PANEL_MODE) {
+        iframe.addEventListener('load', () => {
+            try {
+                const iDoc  = iframe.contentDocument || iframe.contentWindow.document;
+                const iWin  = iframe.contentWindow;
+                const url   = iWin.location.href;
+                urlDisplay.textContent = url;
+            } catch (_) {
+                urlDisplay.textContent = iframe.src;
+            }
+            // Reset binding state on every navigation; setupGjsTracking handles
+            // whether GrapesJS is actually present (no URL guard needed there).
+            gjsListenerReady = false;
+            gjsEditor        = null;
+            gjsSelected      = null;
+            gjsSelectedAll   = [];
+            clearGjsComponentChip();
+            setupGjsTracking();   // starts a fresh polling chain (cancels any stale one)
+        });
 
-    backBtn.addEventListener('click', () => {
-        try { iframe.contentWindow.history.back(); } catch (_) {}
-    });
+        backBtn.addEventListener('click', () => {
+            try { iframe.contentWindow.history.back(); } catch (_) {}
+        });
 
-    forwardBtn.addEventListener('click', () => {
-        try { iframe.contentWindow.history.forward(); } catch (_) {}
-    });
+        forwardBtn.addEventListener('click', () => {
+            try { iframe.contentWindow.history.forward(); } catch (_) {}
+        });
+    }
 
     function navigateIframe(path) {
         if (!path || typeof path !== 'string') return;
         // Reject external URLs and protocol-relative URLs
         if (/^(https?:)?\/\//i.test(path)) return;
         const safePath = path.startsWith('/') ? path : '/' + path;
+        // In panel mode, navigate the parent Mautic page
+        if (PANEL_MODE) {
+            try {
+                window.parent.postMessage({ type: 'odradek_navigate', path: safePath }, '*');
+            } catch (_) {}
+            return;
+        }
         iframe.src = window.location.origin + safePath;
     }
 
     function reloadIframe() {
+        if (PANEL_MODE) {
+            try { window.parent.postMessage({ type: 'odradek_navigate', path: window.parent.location.pathname }, '*'); } catch (_) {}
+            return;
+        }
         try {
             iframe.contentWindow.location.reload();
         } catch (_) {
@@ -313,10 +353,12 @@
         if (selectorCleanup) { selectorCleanup(); selectorCleanup = null; }
     }
 
-    selectBtn.addEventListener('click', () => {
-        if (state.selectMode) disableSelectMode();
-        else                  enableSelectMode();
-    });
+    if (!PANEL_MODE) {
+        selectBtn.addEventListener('click', () => {
+            if (state.selectMode) disableSelectMode();
+            else                  enableSelectMode();
+        });
+    }
 
     function getCssPath(el) {
         const parts = [];
@@ -331,18 +373,20 @@
     }
 
     // ── Context capture ──────────────────────────────────────────────────────
-    captureBtn.addEventListener('click', () => {
-        try {
-            const iWin   = iframe.contentWindow;
-            const iDoc   = iframe.contentDocument || iWin.document;
-            const url    = iWin.location.href;
-            const title  = iDoc.title || '';
-            const text   = (iDoc.body.innerText || '').slice(0, 2000);
-            addContextChip('page', title || url, { url, pageTitle: title, visibleText: text });
-        } catch (err) {
-            addContextChip('page', iframe.src, { url: iframe.src });
-        }
-    });
+    if (!PANEL_MODE) {
+        captureBtn.addEventListener('click', () => {
+            try {
+                const iWin   = iframe.contentWindow;
+                const iDoc   = iframe.contentDocument || iWin.document;
+                const url    = iWin.location.href;
+                const title  = iDoc.title || '';
+                const text   = (iDoc.body.innerText || '').slice(0, 2000);
+                addContextChip('page', title || url, { url, pageTitle: title, visibleText: text });
+            } catch (err) {
+                addContextChip('page', iframe.src, { url: iframe.src });
+            }
+        });
+    }
 
     // ── Context chips ────────────────────────────────────────────────────────
     function addContextChip(type, label, data) {
@@ -418,10 +462,15 @@
         const ctx = {};
         state.contextItems.forEach(chip => Object.assign(ctx, chip.data));
         // Also pull live URL if available
-        try {
-            ctx.url       = ctx.url       || iframe.contentWindow.location.href;
-            ctx.pageTitle = ctx.pageTitle || iframe.contentDocument.title;
-        } catch (_) {}
+        if (PANEL_MODE && parentPageContext) {
+            ctx.url       = ctx.url       || parentPageContext.url;
+            ctx.pageTitle = ctx.pageTitle || parentPageContext.title;
+        } else {
+            try {
+                ctx.url       = ctx.url       || iframe.contentWindow.location.href;
+                ctx.pageTitle = ctx.pageTitle || iframe.contentDocument.title;
+            } catch (_) {}
+        }
         dbg('[OdradekGJS] buildContext →', {
             hasSelectedComponents: !!(ctx.selectedComponents && ctx.selectedComponents.length),
             componentCount: ctx.selectedComponents ? ctx.selectedComponents.length : 0,
@@ -503,18 +552,49 @@
                 </div>
                 <hr class="welcome-divider">
                 <div class="welcome-tips">
-                    <div class="welcome-section-title">Tips</div>
-                    <ul>
-                        <li>Ask me to create, edit, or list any Mautic entity</li>
-                        <li>Use &#8853; Select to pick page elements as context</li>
-                        <li>Use Plan Mode to preview steps before execution</li>
-                        <li>Quick action buttons below for common tasks</li>
-                    </ul>
+                    <div class="welcome-section-title">Try asking</div>
+                    <div id="odradek-cycling-tips"></div>
                 </div>
                 ${recentHtml}
             </div>`;
 
         messagesEl.appendChild(el);
+
+        // ── Randomized cycling tips ──────────────────────────────────
+        const TIPS = [
+            { icon: '🛡', title: 'Ethics Check', text: 'Ask me to check any email for dark patterns, manipulative language, and EU AI Act compliance before you send it.' },
+            { icon: '📊', title: 'Campaign Insights', text: 'Ask "How is my welcome campaign performing?" and I\'ll analyze open rates, click-throughs, and suggest improvements.' },
+            { icon: '🗺', title: 'Plan a Journey', text: 'Describe a goal like "re-engage cold leads" and I\'ll design a multi-step email journey with timing and messaging.' },
+            { icon: '📋', title: 'Compliance Audit', text: 'Ask me to audit any campaign for GDPR and EU AI Act compliance — I\'ll flag risks and suggest fixes.' },
+            { icon: '💬', title: 'Contact Sentiment', text: 'Give me a contact name or email and I\'ll analyze their engagement signals, sentiment, and communication tone.' },
+            { icon: '❤️', title: 'Health Score', text: 'Ask "What\'s the health score for contact X?" to get an engagement score, churn risk, and recommended actions.' },
+            { icon: '🌐', title: 'Build a Landing Page', text: 'Describe your page goal and audience — I\'ll create a full Mautic landing page with content and styling.' },
+            { icon: '📋', title: 'Create a Form', text: 'Tell me what data you need to collect and I\'ll build a Mautic form with the right fields and validation.' },
+            { icon: '📢', title: 'VoC Insights', text: 'Ask "What are customers saying?" and I\'ll aggregate feedback from forms, notes, and engagement signals into themes.' },
+            { icon: '📊', title: 'Build a Survey', text: 'Say "Create an NPS survey" and I\'ll build a ready-made survey form with scoring. Templates: NPS, CSAT, CES, and more.' },
+            { icon: '📈', title: 'Survey Results', text: 'Ask "What\'s the NPS score for form #5?" and I\'ll calculate the metric, show the breakdown, and interpret the results.' },
+            { icon: '✉️', title: 'Create Emails', text: 'Describe the email you need — I\'ll pick a theme, create it, write the content, and open the preview for you.' },
+            { icon: '👥', title: 'Manage Contacts', text: 'Ask me to list, create, update, or find contacts. I can also build segments based on any criteria.' },
+            { icon: '🔍', title: 'Context Aware', text: 'Use the ⊕ Select button to highlight any element on the page — I\'ll use it as context for my next response.' },
+            { icon: '📝', title: 'Plan Mode', text: 'Enable Plan Mode above to preview execution steps before I run them — great for complex multi-step tasks.' },
+        ];
+
+        // Shuffle and pick 3 random tips
+        const shuffled = [...TIPS].sort(() => Math.random() - 0.5);
+        const selected = shuffled.slice(0, 3);
+
+        const tipsContainer = document.getElementById('odradek-cycling-tips');
+        if (tipsContainer) {
+            tipsContainer.innerHTML = selected.map(t =>
+                `<div class="cycling-tip">
+                    <span class="cycling-tip-icon">${t.icon}</span>
+                    <div class="cycling-tip-body">
+                        <strong>${escHtml(t.title)}</strong>
+                        <span class="cycling-tip-text">${escHtml(t.text)}</span>
+                    </div>
+                </div>`
+            ).join('');
+        }
 
         // Wire up recent items as clickable
         el.querySelectorAll('.recent-item').forEach((item) => {
@@ -851,9 +931,7 @@
         return JSON.stringify(result).slice(0, 80);
     }
 
-    // ── Quick-action buttons & inline action drawer ──────────────────────────
-    const quickBtns       = document.querySelectorAll('.quick-action-btn');
-    const quickActionsEl  = document.getElementById('odradek-quick-actions');
+    // ── Inline action drawer (kept for programmatic use) ──────────────────────
     const actionDrawer    = document.getElementById('odradek-action-drawer');
     const actionIcon      = document.getElementById('odradek-action-drawer-icon');
     const actionLabelEl   = document.getElementById('odradek-action-drawer-label');
@@ -962,14 +1040,12 @@
         actionInputEl.placeholder = cfg.placeholder;
         actionInputEl.value       = '';
         actionInputEl.classList.remove('input-error');
-        quickActionsEl.style.display = 'none';
         actionDrawer.hidden          = false;
         actionInputEl.focus();
     }
 
     function closeActionDrawer() {
         actionDrawer.hidden          = true;
-        quickActionsEl.style.display = '';
         currentAction                = null;
         actionInputEl.value          = '';
     }
@@ -997,21 +1073,12 @@
         if (e.key === 'Escape') { closeActionDrawer(); }
     });
 
-    quickBtns.forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (state.busy) return;
-            expandAI();
-            openActionDrawer(btn.dataset.action);
-        });
-    });
-
     // ── setBusy (disables inputs) ────────────────────────────────────────────
     function setBusy(busy) {
         state.busy            = busy;
         inputEl.disabled      = busy;
         sendBtn.disabled      = busy;
         actionRunBtn.disabled = busy;
-        quickBtns.forEach(b => { b.disabled = busy; });
     }
 
     // ── GJS selection capture ────────────────────────────────────────────────
@@ -1193,14 +1260,22 @@
                     navigateIframe(data.args.path);
                     completeActivityLine(data.id, true, { message: `Navigated to ${data.args.path}` });
                 } else if (data.tool === 'get_page_info') {
-                    try {
-                        const iWin = iframe.contentWindow;
-                        const iDoc = iframe.contentDocument;
-                        addContextChip('page', iDoc.title || iWin.location.href, {
-                            url: iWin.location.href,
-                            pageTitle: iDoc.title,
+                    if (PANEL_MODE && parentPageContext) {
+                        addContextChip('page', parentPageContext.title || parentPageContext.url, {
+                            url: parentPageContext.url,
+                            pageTitle: parentPageContext.title,
+                            visibleText: parentPageContext.visibleText,
                         });
-                    } catch (_) {}
+                    } else {
+                        try {
+                            const iWin = iframe.contentWindow;
+                            const iDoc = iframe.contentDocument;
+                            addContextChip('page', iDoc.title || iWin.location.href, {
+                                url: iWin.location.href,
+                                pageTitle: iDoc.title,
+                            });
+                        } catch (_) {}
+                    }
                     completeActivityLine(data.id, true, { message: 'Page info captured' });
                 } else if (data.tool === 'update_grapesjs_component') {
                     try {

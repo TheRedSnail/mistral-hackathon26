@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Odradek AI Panel</title>
+    <link rel="stylesheet" href="{{ assetBase }}/css/odradek-ai.css">
+    <style>
+        /* ── Panel-mode overrides ── */
+        html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #0d1117; }
+        #odradek-split { height: 100vh; }
+        #odradek-mautic-pane { display: none !important; height: 0 !important; }
+        #odradek-divider { display: none !important; }
+        #odradek-ai-pane {
+            height: 100vh !important;
+            flex: 1 1 100% !important;
+            max-height: none !important;
+        }
+        /* Always expanded in panel mode */
+        #odradek-ai-pane,
+        #odradek-ai-pane.ai-expanded {
+            height: 100vh !important;
+        }
+        /* Hide minimize button — parent controls visibility */
+        #odradek-minimize { display: none !important; }
+        /* No rounded corners in embedded panel */
+        #odradek-header { border-radius: 0; }
+    </style>
+</head>
+<body>
+<div id="odradek-split">
+
+    <!-- Hidden mautic pane: DOM stubs so the JS doesn't crash -->
+    <div id="odradek-mautic-pane">
+        <div id="odradek-iframe-toolbar">
+            <button id="odradek-back"></button>
+            <button id="odradek-forward"></button>
+            <span id="odradek-url-display"></span>
+            <div id="odradek-toolbar-actions">
+                <button id="odradek-select-btn"></button>
+                <button id="odradek-capture-btn"></button>
+            </div>
+        </div>
+        <iframe id="odradek-mautic-frame" src="about:blank"></iframe>
+    </div>
+
+    <div id="odradek-divider"></div>
+
+    <!-- ── AI chat pane (full height in panel mode) ── -->
+    <div id="odradek-ai-pane" class="ai-expanded">
+        <div id="odradek-header">
+            <span class="odradek-logo">
+                <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="16" cy="16" r="14" stroke="#007A68" stroke-width="0.75" stroke-dasharray="2.5 2" opacity="0.4"/>
+                    <line x1="16" y1="2" x2="16" y2="30" stroke="#00A088" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+                    <line x1="2" y1="16" x2="30" y2="16" stroke="#00A088" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+                    <line x1="4.69" y1="4.69" x2="27.31" y2="27.31" stroke="#00C4A8" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>
+                    <line x1="27.31" y1="4.69" x2="4.69" y2="27.31" stroke="#00C4A8" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>
+                    <circle cx="16" cy="16" r="5" fill="#0d1117" stroke="#00C4A8" stroke-width="1.5"/>
+                    <circle cx="16" cy="16" r="2.5" fill="#00C4A8"/>
+                    <circle cx="16" cy="16" r="1" fill="#c9d1d9"/>
+                    <circle cx="16" cy="2" r="1.8" fill="#007A68"/>
+                    <circle cx="16" cy="30" r="1.8" fill="#007A68"/>
+                    <circle cx="2" cy="16" r="1.8" fill="#007A68"/>
+                    <circle cx="30" cy="16" r="1.8" fill="#007A68"/>
+                    <circle cx="4.69" cy="4.69" r="1.4" fill="#00A088"/>
+                    <circle cx="27.31" cy="27.31" r="1.4" fill="#00A088"/>
+                    <circle cx="27.31" cy="4.69" r="1.4" fill="#00A088"/>
+                    <circle cx="4.69" cy="27.31" r="1.4" fill="#00A088"/>
+                </svg>
+                Odradek AI
+            </span>
+            <span id="odradek-model-badge">{{ model|default('mistral-large-latest') }}</span>
+            <label class="odradek-toggle" title="Plan mode: preview steps before execution">
+                <input type="checkbox" id="odradek-plan-mode">
+                <span>Plan Mode</span>
+            </label>
+            <button id="odradek-clear" title="Clear conversation history">&#10005; Clear</button>
+            <button id="odradek-minimize" title="Minimize AI panel">&#8964;</button>
+        </div>
+
+        <div id="odradek-messages"></div>
+
+        <div id="odradek-input-area">
+            <div id="odradek-context-chips"></div>
+            <div id="odradek-quick-actions"></div>
+
+            <div id="odradek-action-drawer" hidden>
+                <div id="odradek-action-drawer-top">
+                    <span id="odradek-action-drawer-title">
+                        <span id="odradek-action-drawer-icon"></span>
+                        <span id="odradek-action-drawer-label"></span>
+                    </span>
+                    <button id="odradek-action-cancel" type="button">&#10005; Cancel</button>
+                </div>
+                <p id="odradek-action-drawer-hint"></p>
+                <div id="odradek-action-drawer-row">
+                    <input type="text" id="odradek-action-input" autocomplete="off" spellcheck="false" />
+                    <button id="odradek-action-run" type="button">Run &#8629;</button>
+                </div>
+            </div>
+
+            <textarea
+                id="odradek-input"
+                placeholder="Ask the AI to do anything in Mautic… (Enter to send, Shift+Enter for newline)"
+                rows="3"
+                spellcheck="true"
+            ></textarea>
+            <div id="odradek-input-actions">
+                <div id="odradek-status-bar" class="status-idle">
+                    <span id="odradek-status-anim">&#9670;</span>
+                    <span id="odradek-status-phrase"></span>
+                    <span id="odradek-status-timer"></span>
+                </div>
+                <button id="odradek-send">Send &#8629;</button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    window.ODRADEK_PANEL_MODE  = true;
+    window.ODRADEK_CHAT_URL    = {{ chatUrl|json_encode|raw }};
+    window.ODRADEK_CSRF_TOKEN  = {{ csrfToken|json_encode|raw }};
+    window.ODRADEK_USER_NAME   = {{ userName|json_encode|raw }};
+    window.ODRADEK_API_KEY_SET = {{ apiKeySet ? 'true' : 'false' }};
+    window.ODRADEK_MODEL       = {{ model|json_encode|raw }};
+</script>
+<script src="{{ assetBase }}/js/odradek-ai.js"></script>
+</body>
+</html>

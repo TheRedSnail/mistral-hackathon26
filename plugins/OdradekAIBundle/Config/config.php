@@ -15,6 +15,11 @@ return [
                 'controller' => 'MauticPlugin\OdradekAIBundle\Controller\AiController::indexAction',
                 'method'     => 'GET',
             ],
+            'odradek_ai_panel' => [
+                'path'       => '/odradek/ai/panel',
+                'controller' => 'MauticPlugin\OdradekAIBundle\Controller\AiController::panelAction',
+                'method'     => 'GET',
+            ],
             'odradek_ai_chat' => [
                 'path'       => '/odradek/ai/chat',
                 'controller' => 'MauticPlugin\OdradekAIBundle\Controller\ChatController::chatAction',

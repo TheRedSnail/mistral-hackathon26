@@ -71,4 +71,46 @@ class AiController extends CommonController
                 "connect-src 'self';",
         ]);
     }
+
+    /**
+     * Panel-only view: renders just the AI chat pane (no Mautic iframe).
+     * Loaded inside the injected bottom-panel iframe on every Mautic page.
+     */
+    public function panelAction(Request $request, CoreParametersHelper $params, CsrfTokenManagerInterface $csrfTokenManager): Response
+    {
+        $enabled = (bool) $params->get('odradek_ai_enabled');
+        $apiKey  = (string) $params->get('odradek_ai_api_key');
+        $model   = (string) ($params->get('odradek_ai_model') ?: 'mistral-large-latest');
+
+        if (!$enabled || empty($apiKey)) {
+            return new Response('<html><body style="background:#0d1117;color:#8b949e;font-family:sans-serif;padding:40px;text-align:center"><p>Odradek AI is not enabled. Configure it in Settings → AI Settings.</p></body></html>', 200, [
+                'Content-Type' => 'text/html; charset=UTF-8',
+            ]);
+        }
+
+        $csrfToken = $csrfTokenManager->getToken('odradek_ai_chat')->getValue();
+        $user      = $this->getUser();
+
+        $twig = $this->container->get('twig');
+        $html = $twig->render('@OdradekAI/Ai/panel.html.twig', [
+            'assetBase'  => '/plugins/OdradekAIBundle/Assets',
+            'model'      => $model,
+            'chatUrl'    => $this->generateUrl('odradek_ai_chat'),
+            'csrfToken'  => $csrfToken,
+            'userName'   => $user ? ($user->getFirstName() ?: $user->getUsername()) : 'User',
+            'apiKeySet'  => !empty($apiKey),
+        ]);
+
+        return new Response($html, 200, [
+            'Content-Type'            => 'text/html; charset=UTF-8',
+            'X-Content-Type-Options'  => 'nosniff',
+            'X-Frame-Options'         => 'SAMEORIGIN',
+            'Content-Security-Policy' =>
+                "default-src 'self'; " .
+                "script-src 'self' 'unsafe-inline'; " .
+                "style-src 'self' 'unsafe-inline'; " .
+                "img-src 'self' data:; " .
+                "connect-src 'self';",
+        ]);
+    }
 }
