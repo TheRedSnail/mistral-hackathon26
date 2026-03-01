@@ -55,6 +55,7 @@ class MauticToolExecutor
                 'update_email_component'         => $this->updateEmailComponent($args),
                 'get_email_image_components'    => $this->getEmailImageComponents($args),
                 'update_email_image_component'  => $this->updateEmailImageComponent($args),
+                'localize_email'                => $this->localizeEmail($args),
                 'list_campaigns' => $this->listCampaigns($args),
                 'get_campaign'   => $this->getCampaign($args),
                 'list_segments'              => $this->listSegments($args),
@@ -322,6 +323,64 @@ class MauticToolExecutor
             'email'   => ['id' => $email->getId(), 'name' => $email->getName()],
             'message' => "Email \"{$args['name']}\" created with ID #{$email->getId()}."
                 . ($template ? " (theme: {$template})" : ''),
+        ];
+    }
+
+    private function localizeEmail(array $args): array
+    {
+        $sourceId = (int) $args['sourceId'];
+        $locale   = strtoupper(trim($args['locale']));
+        $language = $args['language'] ?? $locale;
+
+        $source = $this->emailModel->getEntity($sourceId);
+        if (!$source) {
+            return ['success' => false, 'error' => "Email #{$sourceId} not found."];
+        }
+
+        $newName = rtrim($source->getName()) . ' (' . $locale . ')';
+
+        // Idempotency: if a copy with this exact name already exists, return it without creating a duplicate.
+        // Must use findOneBy (exact match) — getEntities with filter does a LIKE search and would
+        // match the source email itself (e.g. "New Leads" matches "New Leads (NL)").
+        $existingEmail = $this->emailModel->getRepository()->findOneBy(['name' => $newName]);
+        if ($existingEmail !== null) {
+            return [
+                'success'  => true,
+                'email'    => ['id' => $existingEmail->getId(), 'name' => $newName],
+                'locale'   => $locale,
+                'language' => $language,
+                'sourceId' => $sourceId,
+                'message'  => "Email \"{$newName}\" (#{$existingEmail->getId()}) already exists — call get_email_components with this ID to retrieve the slots, then translate each with update_email_component.",
+            ];
+        }
+
+        /** @var \Mautic\EmailBundle\Entity\Email $newEmail */
+        $newEmail = $this->emailModel->getEntity();
+        $newEmail->setName($newName);
+        $newEmail->setSubject($source->getSubject());
+        $newEmail->setEmailType($source->getEmailType() ?? 'template');
+        if ($source->getTemplate())    { $newEmail->setTemplate($source->getTemplate()); }
+        if ($source->getCustomHtml())  { $newEmail->setCustomHtml($source->getCustomHtml()); }
+        if ($source->getFromName())    { $newEmail->setFromName($source->getFromName()); }
+        if ($source->getFromAddress()) { $newEmail->setFromAddress($source->getFromAddress()); }
+        $this->emailModel->saveEntity($newEmail);
+
+        // Copy the exact MJML — no theme reload, preserves all slot content
+        $sourceGjs = $this->grapesJsBuilderModel->getRepository()->findOneBy(['email' => $source]);
+        if ($sourceGjs) {
+            $newGjs = new GrapesJsBuilder();
+            $newGjs->setEmail($newEmail);
+            $newGjs->setCustomMjml($sourceGjs->getCustomMjml());
+            $this->grapesJsBuilderModel->getRepository()->saveEntity($newGjs);
+        }
+
+        return [
+            'success'  => true,
+            'email'    => ['id' => $newEmail->getId(), 'name' => $newName],
+            'locale'   => $locale,
+            'language' => $language,
+            'sourceId' => $sourceId,
+            'message'  => "Email \"{$newName}\" (#{$newEmail->getId()}) created as {$language} copy of #{$sourceId}. Call get_email_components with this ID to retrieve the slots, then translate each with update_email_component.",
         ];
     }
 

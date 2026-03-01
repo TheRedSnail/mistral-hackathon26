@@ -246,6 +246,26 @@ class ToolDefinitions
                 ],
             ],
 
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'localize_email',
+                    'description' => 'Create a locale copy of an existing email, preserving its exact theme and MJML structure. '
+                                   . 'The new email is named "{original name} ({LOCALE})" (e.g. "Summer Promo (NL)"). '
+                                   . 'Returns the new email ID and its text components so you can immediately translate each slot with update_email_component. '
+                                   . 'Use this instead of create_email when localizing — NEVER create from scratch when the goal is a locale variant.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'sourceId' => ['type' => 'integer', 'description' => 'ID of the email to localize.'],
+                            'locale'   => ['type' => 'string',  'description' => 'Locale code to append to the name, e.g. "NL", "DE", "FR".'],
+                            'language' => ['type' => 'string',  'description' => 'Full language name for translation, e.g. "Dutch", "German", "French".'],
+                        ],
+                        'required' => ['sourceId', 'locale', 'language'],
+                    ],
+                ],
+            ],
+
             // ── Campaigns ─────────────────────────────────────────────────────
             [
                 'type'     => 'function',

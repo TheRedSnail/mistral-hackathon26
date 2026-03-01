@@ -1308,7 +1308,8 @@
             'create_segment',
         ]);
 
-        let didMutate = false;
+        let didMutate    = false;
+        let didNavigate  = false; // skip auto-reload when navigate_mautic was called this turn
 
         // Manual POST SSE via fetch + ReadableStream
         const source = new EventSource(CHAT_URL + '?_sse=1');
@@ -1393,6 +1394,7 @@
             } else if (event === 'client_tool') {
                 if (data.tool === 'navigate_mautic') {
                     navigateIframe(data.args.path);
+                    didNavigate = true;
                     completeActivityLine(data.id, true, { message: `Navigated to ${data.args.path}` });
                 } else if (data.tool === 'get_page_info') {
                     if (PANEL_MODE && parentPageContext) {
@@ -1455,6 +1457,7 @@
                 // Handle client-side tools inside a batch (e.g. navigate_mautic)
                 if (data.toolName === 'navigate_mautic' && data.args && data.args.path) {
                     navigateIframe(data.args.path);
+                    didNavigate = true;
                 }
 
             } else if (event === 'batch_done') {
@@ -1575,10 +1578,11 @@
             } else if (event === 'done') {
                 finalizeCard();
 
-                if (didMutate) {
+                if (didMutate && !didNavigate) {
                     setTimeout(reloadIframe, 400);
-                    didMutate = false;
                 }
+                didMutate   = false;
+                didNavigate = false;
 
                 // Save to recent activity
                 const lastUserMsg = state.messages.filter(m => m.role === 'user').pop();

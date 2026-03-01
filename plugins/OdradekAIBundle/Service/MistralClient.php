@@ -42,7 +42,7 @@ class MistralClient
         $payload = [
             'model'               => $model,
             'messages'            => $messages,
-            'stream'              => false,
+            'stream'              => true,   // streaming: Mistral sends chunks as generated, preventing idle timeout
             'parallel_tool_calls' => true,
             'max_tokens'          => (int) ($this->parametersHelper->get('odradek_ai_max_tokens') ?: 8000),
         ];
@@ -56,46 +56,88 @@ class MistralClient
             'headers' => [
                 'Authorization' => 'Bearer ' . $apiKey,
                 'Content-Type'  => 'application/json',
-                'Accept'        => 'application/json',
+                'Accept'        => 'text/event-stream',
             ],
             'json'         => $payload,
-            'timeout'      => 120,   // inactivity timeout (Symfony maps this to curl's idle tracking; default is PHP's default_socket_timeout ~60s)
-            'max_duration' => 300,   // hard cap of 5 minutes total
+            'timeout'      => 120,   // max seconds to wait between chunks — Mistral can take time to start streaming large batches
+            'max_duration' => 480,   // hard cap of 8 minutes total
         ]);
 
+        // Wait for headers; non-200 responses are small so toArray() is safe here
         $statusCode = $response->getStatusCode();
-        $body       = $response->toArray(false);
-
         if ($statusCode !== 200) {
+            $body     = $response->toArray(false);
             $errorMsg = $body['message'] ?? $body['error']['message'] ?? 'Unknown Mistral API error';
             throw new \RuntimeException("Mistral API error ({$statusCode}): {$errorMsg}");
         }
 
-        $choice  = $body['choices'][0] ?? null;
-        if (!$choice) {
+        // Accumulate SSE stream
+        $content   = '';
+        $toolCalls = [];   // keyed by tool-call index
+        $buffer    = '';
+
+        foreach ($this->http->stream($response) as $chunk) {
+            $buffer .= $chunk->getContent();
+
+            // Process every complete line in the buffer
+            while (($pos = strpos($buffer, "\n")) !== false) {
+                $line   = substr($buffer, 0, $pos);
+                $buffer = substr($buffer, $pos + 1);
+                $line   = trim($line);
+
+                if ($line === '' || !str_starts_with($line, 'data: ')) {
+                    continue;
+                }
+
+                $data = substr($line, 6);
+                if ($data === '[DONE]') {
+                    break 2;
+                }
+
+                $event = json_decode($data, true);
+                if (!$event) {
+                    continue;
+                }
+
+                $delta = $event['choices'][0]['delta'] ?? [];
+
+                if (isset($delta['content'])) {
+                    $content .= $delta['content'];
+                }
+
+                foreach ($delta['tool_calls'] ?? [] as $tc) {
+                    $idx = $tc['index'] ?? 0;
+                    if (!isset($toolCalls[$idx])) {
+                        $toolCalls[$idx] = ['id' => '', 'name' => '', 'arguments' => ''];
+                    }
+                    if (!empty($tc['id']))                    { $toolCalls[$idx]['id']         = $tc['id']; }
+                    if (!empty($tc['function']['name']))      { $toolCalls[$idx]['name']        = $tc['function']['name']; }
+                    if (isset($tc['function']['arguments']))  { $toolCalls[$idx]['arguments']  .= $tc['function']['arguments']; }
+                }
+            }
+        }
+
+        if ($content === '' && empty($toolCalls)) {
             throw new \RuntimeException('Empty response from Mistral API.');
         }
-        $message    = $choice['message'];
-        $toolCalls  = [];
 
-        if (!empty($message['tool_calls'])) {
-            foreach ($message['tool_calls'] as $tc) {
-                $toolCalls[] = [
-                    'id'       => $tc['id'],
-                    'function' => [
-                        'name'      => $tc['function']['name'],
-                        'arguments' => is_array($tc['function']['arguments'])
-                            ? json_encode($tc['function']['arguments'])
-                            : $tc['function']['arguments'],
-                    ],
-                ];
-            }
+        // Normalise into the same shape the rest of the code expects
+        ksort($toolCalls);
+        $normalized = [];
+        foreach ($toolCalls as $tc) {
+            $normalized[] = [
+                'id'       => $tc['id'],
+                'function' => [
+                    'name'      => $tc['name'],
+                    'arguments' => $tc['arguments'],
+                ],
+            ];
         }
 
         return [
             'role'       => 'assistant',
-            'content'    => $message['content'] ?? null,
-            'tool_calls' => $toolCalls,
+            'content'    => $content ?: null,
+            'tool_calls' => $normalized,
         ];
     }
 }

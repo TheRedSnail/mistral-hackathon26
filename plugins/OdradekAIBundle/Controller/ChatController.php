@@ -166,7 +166,7 @@ class ChatController extends CommonController
                             $toolResultMsgs[] = ['role' => 'tool', 'content' => 'Client-side tool executed.', 'tool_call_id' => $callId];
                         } else {
                             $emitSse('tool_result', ['tool' => $toolName, 'result' => $result, 'id' => $callId]);
-                            $toolResultMsgs[] = ['role' => 'tool', 'content' => json_encode($result), 'tool_call_id' => $callId];
+                            $toolResultMsgs[] = ['role' => 'tool', 'content' => self::truncateToolResult($result), 'tool_call_id' => $callId];
                         }
 
                     } else {
@@ -218,7 +218,7 @@ class ChatController extends CommonController
 
                             $toolResultMsgs[] = [
                                 'role'         => 'tool',
-                                'content'      => $isClientSide ? 'Client-side tool executed.' : json_encode($result),
+                                'content'      => $isClientSide ? 'Client-side tool executed.' : self::truncateToolResult($result),
                                 'tool_call_id' => $callId,
                             ];
                         }
@@ -261,6 +261,7 @@ class ChatController extends CommonController
             'update_email_component'      => '#' . ($args['id'] ?? '?') . '[' . ($args['componentIndex'] ?? '?') . ']',
             'get_email_image_components'   => '#' . ($args['id'] ?? '?'),
             'update_email_image_component' => '#' . ($args['id'] ?? '?') . '[img:' . ($args['imageIndex'] ?? '?') . ']',
+            'localize_email' => '#' . ($args['sourceId'] ?? '?') . '→' . strtoupper($args['locale'] ?? '?'),
             'create_segment'            => $args['name'] ?? '',
             'get_segment', 'update_segment' => '#' . ($args['id'] ?? '?'),
             'get_segment_filter_fields' => '',
@@ -276,6 +277,34 @@ class ChatController extends CommonController
             'create_asset_category'     => $args['title'] ?? '',
             default           => '',
         };
+    }
+
+    /**
+     * Serialise a tool result for the message history, capping at 6 000 chars
+     * so large component lists don't balloon the Mistral input context.
+     */
+    private static function truncateToolResult(array $result): string
+    {
+        $json  = json_encode($result);
+        $limit = 6000;
+        if (strlen($json) <= $limit) {
+            return $json;
+        }
+        // If it has a 'components' key, strip component text down to 60 chars each
+        if (isset($result['components']) && is_array($result['components'])) {
+            foreach ($result['components'] as &$c) {
+                if (isset($c['currentText']) && strlen($c['currentText']) > 60) {
+                    $c['currentText'] = substr($c['currentText'], 0, 60) . '…';
+                }
+            }
+            unset($c);
+            $json = json_encode($result);
+        }
+        // Hard cap as last resort
+        if (strlen($json) > $limit) {
+            $json = substr($json, 0, $limit) . '…"}';
+        }
+        return $json;
     }
 
     private function buildSystemMessage(array $context, array $aiContext = []): array
@@ -299,8 +328,7 @@ class ChatController extends CommonController
                   . "     ({unsubscribe_text}, {webview_text}, {signature}, {contactfield=...}) "
                   . "     or looks like a legal/footer line — leave those unchanged. "
                   . "(5) Call update_email_component once per slot you are filling. "
-                  . "(6) Call navigate_mautic with path '/s/emails/edit/{id}' so the user can preview the result. "
-                  . "(7) After completing all text slots and navigating to the preview, end your reply with:\n"
+                  . "(6) After completing all text slots, end your reply with:\n"
                   . "[ASK]: Your email is ready! Would you like me to generate AI images for the image slots too? "
                   . "(Reply **yes** and I'll create contextually relevant images and place them directly in the email.) "
                   . "Always provide HTML as inner content only (headings, paragraphs, links, lists) — never a full HTML document. "
@@ -322,6 +350,18 @@ class ChatController extends CommonController
         $content .= "GENERAL WORKFLOW RESUMPTION: Before calling any create_* tool, scan the conversation history for a prior result from that same tool. "
                   . "If create_contact, create_segment, or create_asset already ran successfully in this conversation, do NOT call them again — use the returned ID and continue from the interrupted step. "
                   . "Only create a new entity when the user explicitly asks to start over or create a second separate one. ";
+        $content .= "LOCALIZATION WORKFLOW — when the user asks to localize, translate, or create a locale variant of an existing email: "
+                  . "Process ONE locale at a time — fully complete each locale before starting the next. "
+                  . "For each locale, follow these steps in a single turn: "
+                  . "(1) Call localize_email with sourceId, locale (e.g. 'NL'), and language (e.g. 'Dutch'). "
+                  . "(2) Call get_email_components with the new email ID returned in step 1. "
+                  . "(3) Call update_email_component for each translatable slot — skip Mautic tokens and legal/footer lines. "
+                  . "    Translate the subject too: call update_email with the translated subject. "
+                  . "Then repeat steps 1-3 for the next locale. "
+                  . "Do NOT call navigate_mautic — leave the user on the page they are on. "
+                  . "Do NOT pause between steps to ask permission or show a plan — execute everything immediately. "
+                  . "NEVER call create_email when the user asks to localize — always use localize_email. "
+                  . "LOCALIZATION RESUMPTION: If localize_email already ran for a locale in this conversation, do NOT call it again — use the returned email ID and continue from get_email_components. ";
         $content .= "IMAGE WORKFLOW — when the user says yes to generating images for an email: "
                   . "(a) Call get_email_image_components to list all mj-image slots. If count is 0, tell the user and stop. "
                   . "(b) Before generating any new image, call list_assets with 1–3 relevant keyword searches "
@@ -335,7 +375,6 @@ class ChatController extends CommonController
                   . "    — No relevant match found → call generate_image_asset with a vivid, specific prompt. "
                   . "(d) For each slot (reused OR newly generated), call update_email_image_component with the "
                   . "    email ID, imageIndex, and the asset url. "
-                  . "(e) After all slots are filled, call navigate_mautic with '/s/emails/edit/{id}' to preview. "
                   . "Do NOT regenerate assets that have a suitable match — reuse saves time and keeps brand consistency. ";
         $content .= "SELF-VERIFICATION: After completing any mutating workflow, always verify your work by calling the appropriate read tool before ending, then report the confirmed state to the user. ";
         $content .= "Verification rules: ";
