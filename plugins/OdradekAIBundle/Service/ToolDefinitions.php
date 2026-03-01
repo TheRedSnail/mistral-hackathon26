@@ -680,6 +680,85 @@ class ToolDefinitions
                     ],
                 ],
             ],
+
+            // ── Forms ──────────────────────────────────────────────────────────────────
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'list_forms',
+                    'description' => 'List Mautic forms.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'search' => ['type' => 'string',  'description' => 'Filter by name.'],
+                            'limit'  => ['type' => 'integer', 'description' => 'Max results. Default 20.'],
+                        ],
+                        'required' => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_form',
+                    'description' => 'Get details of a Mautic form including its fields and actions.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id' => ['type' => 'integer', 'description' => 'The form ID.'],
+                        ],
+                        'required' => ['id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'create_form',
+                    'description' => 'Create a new Mautic form with fields and submit actions. '
+                        . 'Always include an email field (mapped to contact email). '
+                        . 'Always end with a submit button (type: button). '
+                        . 'Map fields to contact properties via mappedObject/mappedField. '
+                        . 'Add a lead.changelist action to enrol the contact in a relevant segment.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'name'               => ['type' => 'string',  'description' => 'Form name.'],
+                            'description'        => ['type' => 'string',  'description' => 'Optional description.'],
+                            'formType'           => ['type' => 'string',  'description' => '"standalone" (default) or "campaign".'],
+                            'postAction'         => ['type' => 'string',  'description' => '"message" (default), "redirect", or "return".'],
+                            'postActionProperty' => ['type' => 'string',  'description' => 'Thank-you message text (for "message") or redirect URL (for "redirect").'],
+                            'isPublished'        => ['type' => 'boolean', 'description' => 'Publish immediately. Default true.'],
+                            'fields'             => [
+                                'type'        => 'array',
+                                'description' => 'Ordered list of form fields. Each field: label (string), type (string), alias (string, snake_case), isRequired (bool), mappedObject ("contact"|"company"|null), mappedField (contact field alias|null), helpMessage (string), properties (object, for select/radio/checkbox: {optionlist:{list:[{label,value}]}}), order (int).',
+                                'items'       => ['type' => 'object'],
+                            ],
+                            'actions'            => [
+                                'type'        => 'array',
+                                'description' => 'Submit actions. Each action: type (string e.g. "lead.changelist"), name (string), properties (object — e.g. {addToLists:[segmentId], removeFromLists:[]}).',
+                                'items'       => ['type' => 'object'],
+                            ],
+                        ],
+                        'required' => ['name', 'fields'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'update_form',
+                    'description' => 'Update an existing Mautic form (name, description, postAction, postActionProperty, isPublished).',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id'     => ['type' => 'integer', 'description' => 'Form ID.'],
+                            'params' => ['type' => 'object',  'description' => 'Fields to update: name, description, postAction, postActionProperty, isPublished.'],
+                        ],
+                        'required' => ['id', 'params'],
+                    ],
+                ],
+            ],
         ];
     }
 }

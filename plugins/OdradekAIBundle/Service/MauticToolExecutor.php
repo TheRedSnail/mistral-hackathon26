@@ -10,6 +10,7 @@ use Mautic\CoreBundle\Helper\CoreParametersHelper;
 use Mautic\EmailBundle\Model\EmailModel;
 use Mautic\LeadBundle\Model\LeadModel;
 use Mautic\LeadBundle\Model\ListModel;
+use Mautic\FormBundle\Model\FormModel;
 use Mautic\PageBundle\Model\PageModel;
 use MauticPlugin\GrapesJsBuilderBundle\Entity\GrapesJsBuilder;
 use MauticPlugin\GrapesJsBuilderBundle\Model\GrapesJsBuilderModel;
@@ -27,6 +28,7 @@ class MauticToolExecutor
         private readonly GeminiClient         $geminiClient,
         private readonly CoreParametersHelper $parametersHelper,
         private readonly PageModel            $pageModel,
+        private readonly FormModel            $formModel,
     ) {}
 
     public function execute(string $tool, array $args): array
@@ -76,6 +78,10 @@ class MauticToolExecutor
                 'get_page'         => $this->getPage($args),
                 'create_page'      => $this->createPage($args),
                 'update_page'      => $this->updatePage($args),
+                'list_forms'       => $this->listForms($args),
+                'get_form'         => $this->getForm($args),
+                'create_form'      => $this->createForm($args),
+                'update_form'      => $this->updateForm($args),
                 default            => ['success' => false, 'error' => "Unknown tool: {$tool}"],
             };
         } catch (\Throwable $e) {
@@ -1455,6 +1461,221 @@ HTML;
             'success' => true,
             'message' => "Page #{$args['id']} updated.",
             'page'    => ['id' => $page->getId(), 'title' => $page->getTitle()],
+        ];
+    }
+
+    // ── Forms ─────────────────────────────────────────────────────────────────
+
+    private function listForms(array $args): array
+    {
+        $results = $this->formModel->getEntities([
+            'filter'     => ['string' => $args['search'] ?? ''],
+            'limit'      => min((int) ($args['limit'] ?? 20), 100),
+            'start'      => 0,
+            'orderBy'    => 'f.name',
+            'orderByDir' => 'asc',
+        ]);
+
+        $forms = [];
+        foreach ($results as $form) {
+            $forms[] = [
+                'id'          => $form->getId(),
+                'name'        => $form->getName(),
+                'alias'       => $form->getAlias(),
+                'formType'    => $form->getFormType(),
+                'isPublished' => $form->isPublished(),
+                'fields'      => $form->getFields()->count(),
+            ];
+        }
+
+        return ['success' => true, 'forms' => $forms, 'count' => count($forms)];
+    }
+
+    private function getForm(array $args): array
+    {
+        $form = $this->formModel->getEntity((int) $args['id']);
+        if (!$form) {
+            return ['success' => false, 'error' => "Form #{$args['id']} not found."];
+        }
+
+        $fields = [];
+        foreach ($form->getFields() as $field) {
+            $fields[] = [
+                'id'           => $field->getId(),
+                'label'        => $field->getLabel(),
+                'alias'        => $field->getAlias(),
+                'type'         => $field->getType(),
+                'isRequired'   => $field->getIsRequired(),
+                'order'        => $field->getOrder(),
+                'mappedObject' => $field->getMappedObject(),
+                'mappedField'  => $field->getMappedField(),
+            ];
+        }
+
+        $actions = [];
+        foreach ($form->getActions() as $action) {
+            $actions[] = [
+                'id'         => $action->getId(),
+                'name'       => $action->getName(),
+                'type'       => $action->getType(),
+                'properties' => $action->getProperties(),
+            ];
+        }
+
+        return ['success' => true, 'form' => [
+            'id'                 => $form->getId(),
+            'name'               => $form->getName(),
+            'alias'              => $form->getAlias(),
+            'formType'           => $form->getFormType(),
+            'postAction'         => $form->getPostAction(),
+            'postActionProperty' => $form->getPostActionProperty(),
+            'isPublished'        => $form->isPublished(),
+            'fields'             => $fields,
+            'actions'            => $actions,
+            'embedUrl'           => '/form/' . $form->getId(),
+        ]];
+    }
+
+    private function createForm(array $args): array
+    {
+        /** @var \Mautic\FormBundle\Entity\Form $form */
+        $form = $this->formModel->getEntity();
+        $form->setName($args['name']);
+
+        if (!empty($args['description'])) {
+            $form->setDescription($args['description']);
+        }
+        $form->setFormType($args['formType'] ?? 'standalone');
+        $form->setPostAction($args['postAction'] ?? 'message');
+        $form->setPostActionProperty(
+            $args['postActionProperty'] ?? 'Thank you! Your response has been recorded.'
+        );
+        $form->setIsPublished($args['isPublished'] ?? true);
+        $form->setRenderStyle(false);
+        $form->setInKioskMode(false);
+
+        // ── Build session-format field array ──────────────────────────────────
+        $sessionFields = [];
+        $order         = 1;
+        $hasButton     = false;
+
+        foreach ($args['fields'] as $i => $def) {
+            $type = $def['type'] ?? 'text';
+            if ($type === 'button') {
+                $hasButton = true;
+            }
+
+            $alias = $def['alias'] ?? '';
+            if ($alias === '') {
+                $alias = strtolower(preg_replace('/[^a-z0-9]+/i', '_', $def['label'] ?? 'field'));
+                $alias = trim($alias, '_');
+            }
+
+            $key                 = 'new_' . ($i + 1);
+            $sessionFields[$key] = [
+                'id'                  => null,
+                'label'               => $def['label'] ?? 'Field',
+                'alias'               => $alias,
+                'type'                => $type,
+                'isRequired'          => (bool) ($def['isRequired'] ?? false),
+                'defaultValue'        => $def['defaultValue'] ?? '',
+                'helpMessage'         => $def['helpMessage'] ?? '',
+                'validationMessage'   => $def['validationMessage'] ?? '',
+                'showLabel'           => true,
+                'order'               => (int) ($def['order'] ?? $order),
+                'properties'          => $def['properties'] ?? [],
+                'validation'          => [],
+                'conditions'          => null,
+                'labelAttributes'     => null,
+                'inputAttributes'     => null,
+                'containerAttributes' => null,
+                'saveResult'          => $type !== 'button',
+                'isAutoFill'          => (bool) ($def['isAutoFill'] ?? false),
+                'mappedObject'        => $def['mappedObject'] ?? null,
+                'mappedField'         => $def['mappedField'] ?? null,
+            ];
+            $order++;
+        }
+
+        // Always ensure a submit button exists
+        if (!$hasButton) {
+            $sessionFields['new_submit'] = [
+                'id'                  => null,
+                'label'               => 'Submit',
+                'alias'               => 'submit',
+                'type'                => 'button',
+                'isRequired'          => false,
+                'defaultValue'        => '',
+                'helpMessage'         => '',
+                'validationMessage'   => '',
+                'showLabel'           => true,
+                'order'               => 999,
+                'properties'          => [],
+                'validation'          => [],
+                'conditions'          => null,
+                'labelAttributes'     => null,
+                'inputAttributes'     => null,
+                'containerAttributes' => null,
+                'saveResult'          => false,
+                'isAutoFill'          => false,
+                'mappedObject'        => null,
+                'mappedField'         => null,
+            ];
+        }
+
+        $this->formModel->setFields($form, $sessionFields);
+
+        // ── Build session-format action array ─────────────────────────────────
+        if (!empty($args['actions'])) {
+            $sessionActions = [];
+            foreach ($args['actions'] as $i => $actionDef) {
+                $sessionActions['new_a' . ($i + 1)] = [
+                    'id'          => null,
+                    'name'        => $actionDef['name'] ?? $actionDef['type'],
+                    'description' => $actionDef['description'] ?? '',
+                    'type'        => $actionDef['type'],
+                    'order'       => (int) ($actionDef['order'] ?? ($i + 1)),
+                    'properties'  => $actionDef['properties'] ?? [],
+                ];
+            }
+            $this->formModel->setActions($form, $sessionActions);
+        }
+
+        $this->formModel->saveEntity($form);
+
+        return [
+            'success' => true,
+            'form'    => [
+                'id'       => $form->getId(),
+                'name'     => $form->getName(),
+                'alias'    => $form->getAlias(),
+                'embedUrl' => '/form/' . $form->getId(),
+            ],
+            'message' => "Form \"{$form->getName()}\" created (ID #{$form->getId()}). "
+                . "Embed URL: /form/{$form->getId()}.",
+        ];
+    }
+
+    private function updateForm(array $args): array
+    {
+        $form = $this->formModel->getEntity((int) $args['id']);
+        if (!$form) {
+            return ['success' => false, 'error' => "Form #{$args['id']} not found."];
+        }
+
+        $p = $args['params'] ?? [];
+        if (isset($p['name']))               { $form->setName($p['name']); }
+        if (isset($p['description']))        { $form->setDescription($p['description']); }
+        if (isset($p['postAction']))         { $form->setPostAction($p['postAction']); }
+        if (isset($p['postActionProperty'])) { $form->setPostActionProperty($p['postActionProperty']); }
+        if (isset($p['isPublished']))        { $form->setIsPublished((bool) $p['isPublished']); }
+
+        $this->formModel->saveEntity($form);
+
+        return [
+            'success' => true,
+            'message' => "Form #{$args['id']} updated.",
+            'form'    => ['id' => $form->getId(), 'name' => $form->getName()],
         ];
     }
 }

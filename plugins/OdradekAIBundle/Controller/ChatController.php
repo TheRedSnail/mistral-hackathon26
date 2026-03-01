@@ -333,6 +333,23 @@ class ChatController extends CommonController
                   . "(3) Call navigate_mautic with path '/s/pages/edit/{id}' to open the visual editor. "
                   . "(4) Tell the user the public preview URL: /p/{alias}. "
                   . "If the user asks to update or rework the page content, use update_page with the full revised HTML. ";
+        $content .= "When building a form, follow marketing automation best practices: "
+                  . "(1) Call list_segments to find relevant segments to enrol contacts in. "
+                  . "(2) Call create_form with a complete field set — always include an email field "
+                  . "    (type: email, mapped to mappedObject='contact', mappedField='email', isRequired=true), "
+                  . "    relevant profiling fields, and a submit button (type: button) as the last field. "
+                  . "    Map each field to the correct contact property: mappedObject='contact', "
+                  . "    mappedField matching the contact alias (e.g. firstname, lastname, email, phone, company, title). "
+                  . "    Set postAction='message' and postActionProperty to a friendly thank-you message. "
+                  . "    Include a lead.changelist action to enrol the contact in the most relevant segment. "
+                  . "    For GDPR / EU audiences, add a checkboxgrp consent field (not required to submit, but mapped). "
+                  . "(3) Call navigate_mautic with path '/s/forms/edit/{id}' to show the form editor. "
+                  . "(4) Share the public embed URL: /form/{id}. "
+                  . "Common form templates: "
+                  . "Lead capture: firstname (required), lastname, email (required), company, phone, submit. "
+                  . "Newsletter signup: email (required), firstname, consent checkbox, submit. "
+                  . "Contact form: firstname (required), email (required), message textarea, submit. "
+                  . "Webinar registration: firstname (required), lastname (required), email (required), company, job_title, submit. ";
 
         // ── Context injection with prompt-injection mitigations ─────────────
         // Strip control characters (keep newlines) and instruction-override patterns
