@@ -175,25 +175,53 @@
     }
 
     // ── iframe navigation tracking ───────────────────────────────────────────
+    // Handles both full page loads (load event) and PJAX/SPA navigation (no load
+    // event — Mautic swaps content via AJAX and pushState, so load never fires).
+    // Both paths funnel into handleIframeNavigation() which is idempotent per URL.
     if (!PANEL_MODE) {
-        iframe.addEventListener('load', () => {
+        let lastHandledUrl = '';
+
+        function handleIframeNavigation() {
+            let url = iframe.src;
             try {
-                const iDoc  = iframe.contentDocument || iframe.contentWindow.document;
-                const iWin  = iframe.contentWindow;
-                const url   = iWin.location.href;
+                const iWin = iframe.contentWindow;
+                const iDoc = iframe.contentDocument || iWin.document;
+                url = iWin.location.href;
+
+                // Skip about:blank and re-entrancy for same URL.
+                if (!url || url === 'about:blank' || url === lastHandledUrl) return;
+                lastHandledUrl = url;
+
                 urlDisplay.textContent = url;
+
+                // Replace page context chip with the new page's info.
+                state.contextItems = state.contextItems.filter(c => c.type !== 'page');
+                const title = iDoc.title || '';
+                const text  = (iDoc.body && iDoc.body.innerText || '').slice(0, 2000);
+                addContextChip('page', title || url, { url, pageTitle: title, visibleText: text });
             } catch (_) {
-                urlDisplay.textContent = iframe.src;
+                if (url && url !== lastHandledUrl) {
+                    lastHandledUrl = url;
+                    urlDisplay.textContent = url;
+                }
             }
-            // Reset binding state on every navigation; setupGjsTracking handles
-            // whether GrapesJS is actually present (no URL guard needed there).
+            // Reset GJS binding state and start a fresh detection chain.
             gjsListenerReady = false;
             gjsEditor        = null;
             gjsSelected      = null;
             gjsSelectedAll   = [];
             clearGjsComponentChip();
-            setupGjsTracking();   // starts a fresh polling chain (cancels any stale one)
-        });
+            setupGjsTracking();
+        }
+
+        // Full page load (Playwright-style navigation, reload, or external link).
+        iframe.addEventListener('load', handleIframeNavigation);
+
+        // PJAX / SPA navigation: Mautic updates URL via pushState without a load
+        // event. Poll every 800 ms — fast enough to feel instant, cheap enough to
+        // be invisible. handleIframeNavigation() skips unchanged URLs, so this is
+        // a no-op on every tick where nothing has changed.
+        setInterval(handleIframeNavigation, 800);
 
         backBtn.addEventListener('click', () => {
             try { iframe.contentWindow.history.back(); } catch (_) {}
@@ -308,21 +336,46 @@
                     return;
                 }
 
-                // Method B: intercept Mautic's builder:show jQuery event
-                const jq        = iWin.mQuery || iWin.jQuery || iWin.$;
-                const builderEl = iDoc && iDoc.querySelector('.builder');
-                if (jq && builderEl && !jqBound) {
+                // Method B: intercept Mautic's builder:show jQuery event.
+                // Listen on body rather than .builder — jQuery trigger() bubbles, so
+                // catching on body is equivalent. This avoids the race where .builder
+                // isn't yet in the DOM when polling starts but builder:show fires soon after.
+                const jq = iWin.mQuery || iWin.jQuery || iWin.$;
+                if (jq && iDoc && iDoc.body && !jqBound) {
                     jqBound = true;
-                    dbg('[OdradekGJS] attaching builder:show listener via mQuery');
-                    jq(builderEl).off('builder:show.odradek').on('builder:show.odradek', function (evt, editor) {
-                        dbg('[OdradekGJS] builder:show event caught, editor=', !!editor);
+                    dbg('[OdradekGJS] attaching builder:show listener on body via mQuery');
+                    jq(iDoc.body).off('builder:show.odradek').on('builder:show.odradek', function (evt, editor) {
+                        dbg('[OdradekGJS] builder:show caught, editor=', !!editor);
                         if (editor) bindToEditor(editor);
                     });
                 } else if (!jqBound) {
                     dbg('[OdradekGJS] attempt', attempts,
                         '— window.grapesjs:', !!(gjs),
                         'mQuery:', !!jq,
-                        '.builder element:', !!builderEl);
+                        'body:', !!(iDoc && iDoc.body));
+                }
+
+                // Method C: window property scan — catches cases where the builder page
+                // loads GrapesJS and fires builder:show *before* our load event fires
+                // (i.e. builder is already open when we start listening). Scans iWin for
+                // any object that looks like a GrapesJS editor (has getSelectedAll + on).
+                if (!gjsListenerReady && iDoc && iDoc.querySelector('.gjs-editor')) {
+                    dbg('[OdradekGJS] .gjs-editor found in DOM — scanning window for editor object');
+                    const keys = Object.keys(iWin);
+                    for (let ki = 0; ki < keys.length; ki++) {
+                        try {
+                            const val = iWin[keys[ki]];
+                            if (val && typeof val === 'object'
+                                    && typeof val.getSelectedAll === 'function'
+                                    && typeof val.getComponents  === 'function'
+                                    && typeof val.on             === 'function') {
+                                dbg('[OdradekGJS] Method C found editor at window.' + keys[ki]);
+                                bindToEditor(val);
+                                return;
+                            }
+                        } catch (_) {}
+                    }
+                    dbg('[OdradekGJS] Method C: .gjs-editor present but no editor found in window.*');
                 }
             } catch (e) {
                 dbgWarn('[OdradekGJS] tryBind error (attempt', attempts, '):', e);

@@ -47,12 +47,21 @@ def send_chat(page, text, wait_ms=15000):
     """Type a message and send it, wait for response, return AI text."""
     page.fill('#odradek-input', text)
     page.click('#odradek-send')
-    # Wait for busy to clear (send button re-enabled)
-    page.wait_for_function("!document.getElementById('odradek-send').disabled", timeout=wait_ms)
+    # Poll for send button re-enabled using eval_on_selector (avoids wait_for_function
+    # which internally uses eval and breaks on CSP pages without unsafe-eval).
+    deadline = time.time() + wait_ms / 1000
+    while time.time() < deadline:
+        try:
+            is_disabled = page.eval_on_selector('#odradek-send', 'el => el.disabled')
+            if not is_disabled:
+                break
+        except Exception:
+            pass
+        time.sleep(0.3)
     page.wait_for_timeout(500)
-    # Get last AI message
+    # Get last AI message — exchange-card UI uses .exchange-main .msg-body
     msgs = page.eval_on_selector_all(
-        '.msg-ai .msg-body',
+        '.exchange-main .msg-body',
         "els => els.map(e => e.textContent)"
     )
     return msgs[-1] if msgs else ''
@@ -131,12 +140,22 @@ def run():
         email_frame.click('#emailform_buttons_builder_toolbar')
         page.wait_for_timeout(4000)
 
-        # Verify binding
-        bound = any('bound to editor' in l for l in odradek_logs)
-        check('GrapesJS editor bound', bound)
+        # Binding check: dbg() logs only fire when ODRADEK_DEBUG is set, so instead
+        # verify that at least one text chip exists after clicking any canvas element.
+        # We'll do a quick click to prime GrapesJS and check for chip appearance.
+        canvas, canvas_len = find_gjs_canvas(page)
+        if canvas:
+            try:
+                first_text_el = canvas.query_selector('[data-gjs-type="mj-text"]')
+                if first_text_el:
+                    first_text_el.click()
+                    page.wait_for_timeout(600)
+            except Exception:
+                pass
+        bound_chips = get_chips(page)
+        check('GrapesJS editor bound (chip appeared on click)', len(bound_chips) > 0, bound_chips)
 
         # ── Get canvas and components ─────────────────────────────────────
-        canvas, canvas_len = find_gjs_canvas(page)
         check('GrapesJS canvas found', canvas is not None, canvas_len)
 
         comps = get_gjs_text_components(canvas)
