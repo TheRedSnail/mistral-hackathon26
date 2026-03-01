@@ -916,6 +916,83 @@ class ToolDefinitions
                     ],
                 ],
             ],
+
+            // ── VoC Survey Templates ─────────────────────────────────────
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'list_survey_templates',
+                    'description' => 'List available VoC survey templates with descriptions, question types, scoring methods, and benchmarks. '
+                        . 'Use this when the user asks what surveys are available or wants to choose a template.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => (object) [],
+                        'required'   => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'create_survey',
+                    'description' => 'Create a VoC survey from a pre-built template. Builds a complete Mautic form with the correct '
+                        . 'question types, scales, and field aliases for automated scoring. '
+                        . 'Templates: nps (Net Promoter Score 0-10), csat (Customer Satisfaction 1-5), '
+                        . 'ces (Customer Effort Score 1-7), pmf (Product-Market Fit), onboarding (Onboarding Feedback), '
+                        . 'churn (Exit Survey), post_purchase (Post-Purchase). '
+                        . 'After creating, use survey_analytics with the form_id to compute results.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'template'         => [
+                                'type'        => 'string',
+                                'enum'        => ['nps', 'csat', 'ces', 'pmf', 'onboarding', 'churn', 'post_purchase'],
+                                'description' => 'Survey template to use.',
+                            ],
+                            'company_name'     => [
+                                'type'        => 'string',
+                                'description' => 'Company name to personalize the survey questions (optional).',
+                            ],
+                            'product_name'     => [
+                                'type'        => 'string',
+                                'description' => 'Product or service name to reference in questions (optional).',
+                            ],
+                            'custom_follow_up' => [
+                                'type'        => 'string',
+                                'description' => 'Custom follow-up question to replace the default open-ended question (optional).',
+                            ],
+                        ],
+                        'required' => ['template'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'survey_analytics',
+                    'description' => 'Calculate survey metrics (NPS score, CSAT %, CES average, PMF %) from form responses. '
+                        . 'Automatically detects the survey type from field aliases set by create_survey. '
+                        . 'Returns the computed score, response breakdown, response count, benchmarks, and AI-powered interpretation.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'form_id'   => [
+                                'type'        => 'integer',
+                                'description' => 'The Mautic form ID of the survey to analyze.',
+                            ],
+                            'date_from' => [
+                                'type'        => 'string',
+                                'description' => 'Start date filter in Y-m-d format (optional).',
+                            ],
+                            'date_to'   => [
+                                'type'        => 'string',
+                                'description' => 'End date filter in Y-m-d format (optional).',
+                            ],
+                        ],
+                        'required' => ['form_id'],
+                    ],
+                ],
+            ],
         ];
     }
 }
