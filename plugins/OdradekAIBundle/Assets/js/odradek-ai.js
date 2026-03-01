@@ -284,6 +284,26 @@
             if (!iWin) return;
         } catch (_) { return; }
 
+        // ── MauticGrapesJsPlugins bridge injection ───────────────────────────
+        // Inject a tiny script into the iframe that registers via Mautic's
+        // official GrapesJS plugin extension point. When Mautic calls plugin(editor)
+        // it stores the editor on window.odradekGjsEditor so Method D can read it.
+        // Uses a <script> element (allowed by 'unsafe-inline' CSP) rather than eval.
+        // Idempotent: skipped if the script element is already in the document.
+        try {
+            if (iDoc && iDoc.head && !iDoc.getElementById('odradek-gjs-bridge')) {
+                const s = iDoc.createElement('script');
+                s.id          = 'odradek-gjs-bridge';
+                s.textContent = 'window.MauticGrapesJsPlugins=window.MauticGrapesJsPlugins||[];'
+                              + 'window.MauticGrapesJsPlugins.push({'
+                              + 'name:"odradek-ai-bridge",'
+                              + 'plugin:function(ed){window.odradekGjsEditor=ed;}'
+                              + '});';
+                iDoc.head.appendChild(s);
+                dbg('[OdradekGJS] bridge script injected into iframe head');
+            }
+        } catch (_) {}
+
         // ── Bind to a resolved editor instance ──────────────────────────────
         function bindToEditor(editor) {
             if (gjsListenerReady) return;
@@ -330,6 +350,16 @@
             attempts++;
 
             try {
+                // Method D: MauticGrapesJsPlugins bridge — our injected script sets
+                // window.odradekGjsEditor when Mautic calls plugin(editor). This is
+                // the most reliable path: uses Mautic's official extension point.
+                if (iWin.odradekGjsEditor
+                        && typeof iWin.odradekGjsEditor.getSelectedAll === 'function') {
+                    dbg('[OdradekGJS] found via MauticGrapesJsPlugins bridge (Method D)');
+                    bindToEditor(iWin.odradekGjsEditor);
+                    return;
+                }
+
                 // Method A: window.grapesjs.editors (works when GrapesJS is global)
                 const gjs     = iWin.grapesjs;
                 const editors = gjs && gjs.editors;

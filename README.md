@@ -6,6 +6,7 @@ A Mautic 5 plugin that embeds a Mistral AI assistant into Mautic. Users interact
 
 - Docker + Docker Compose
 - Python 3 (for the data seeder — stdlib only, no pip installs needed)
+- Google Chrome is recommended / tested
 
 ## Quick Start
 
