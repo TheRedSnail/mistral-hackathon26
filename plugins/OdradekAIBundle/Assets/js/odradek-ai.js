@@ -39,6 +39,13 @@
     const statusPhrase = document.getElementById('odradek-status-phrase');
     const statusTimer  = document.getElementById('odradek-status-timer');
 
+    // ── Nav rail + view refs ─────────────────────────────────────────────────
+    const navChatBtn    = document.getElementById('odradek-nav-chat');
+    const navContextBtn = document.getElementById('odradek-nav-context');
+    const viewChat      = document.getElementById('odradek-view-chat');
+    const viewContext   = document.getElementById('odradek-view-context');
+    const ctxSavedEl    = document.getElementById('odradek-ctx-saved');
+
     const CHAT_URL     = window.ODRADEK_CHAT_URL || '/odradek/ai/chat';
 
     // ── State ───────────────────────────────────────────────────────────────
@@ -54,6 +61,22 @@
         currentMainBody:      null, // .msg-body inside .exchange-main
         currentActivityCount: 0,    // badge count
     };
+
+    // ── AI Context — localStorage constants & field map ─────────────────────
+    const CTX_STORAGE_KEY  = 'odradek_ai_context_v1';
+    const CONV_STORAGE_KEY = 'odradek_ai_conv_v1';
+    const CTX_FIELDS = [
+        { key: 'company_name',     el: 'ctx-company-name'     },
+        { key: 'industry',         el: 'ctx-industry'          },
+        { key: 'logo_url',         el: 'ctx-logo-url'          },
+        { key: 'brand_guidelines', el: 'ctx-brand-guidelines'  },
+        { key: 'tone_of_voice',    el: 'ctx-tone-of-voice'     },
+        { key: 'target_personas',  el: 'ctx-target-personas'   },
+        { key: 'marketing_goals',  el: 'ctx-marketing-goals'   },
+        { key: 'key_products',     el: 'ctx-key-products'      },
+        { key: 'compliance_notes', el: 'ctx-compliance-notes'  },
+        { key: 'other_context',    el: 'ctx-other-context'     },
+    ];
 
     // ── Panel mode: receive page context from parent via postMessage ────────
     let parentPageContext = null;
@@ -89,6 +112,19 @@
         if (dividerEl) dividerEl.classList.remove('ai-visible');
         aiPane.style.height = ''; // revert to CSS default (38px)
     }
+
+    // ── View switching (chat ↔ context panel) ────────────────────────────────
+    let currentView = 'chat';
+    function switchView(view) {
+        currentView = view;
+        const isChat = view === 'chat';
+        if (viewChat)      viewChat.classList.toggle('view-hidden', !isChat);
+        if (viewContext)   viewContext.classList.toggle('view-hidden', isChat);
+        if (navChatBtn)    navChatBtn.classList.toggle('nav-active', isChat);
+        if (navContextBtn) navContextBtn.classList.toggle('nav-active', !isChat);
+    }
+    if (navChatBtn)    navChatBtn.addEventListener('click', () => switchView('chat'));
+    if (navContextBtn) navContextBtn.addEventListener('click', () => switchView('context'));
 
     // Click header to expand when collapsed
     headerEl.addEventListener('click', (e) => {
@@ -480,6 +516,102 @@
         return ctx;
     }
 
+    // ── AI Context panel — localStorage helpers ──────────────────────────────
+    function loadAiContext() {
+        try { return JSON.parse(localStorage.getItem(CTX_STORAGE_KEY) || '{}'); }
+        catch (_) { return {}; }
+    }
+    function saveAiContext(data) {
+        try { localStorage.setItem(CTX_STORAGE_KEY, JSON.stringify(data)); } catch (_) {}
+    }
+    function populateContextForm() {
+        const data = loadAiContext();
+        CTX_FIELDS.forEach(f => {
+            const el = document.getElementById(f.el);
+            if (el) el.value = data[f.key] || '';
+        });
+    }
+    function readContextForm() {
+        const data = {};
+        CTX_FIELDS.forEach(f => {
+            const el = document.getElementById(f.el);
+            if (el && el.value.trim()) data[f.key] = el.value.trim();
+        });
+        return data;
+    }
+    let ctxSaveTimer = null;
+    function scheduleContextSave() {
+        clearTimeout(ctxSaveTimer);
+        ctxSaveTimer = setTimeout(() => {
+            saveAiContext(readContextForm());
+            if (ctxSavedEl) {
+                ctxSavedEl.classList.add('visible');
+                setTimeout(() => ctxSavedEl.classList.remove('visible'), 1800);
+            }
+        }, 800);
+    }
+    function initContextPanel() {
+        populateContextForm();
+        CTX_FIELDS.forEach(f => {
+            const el = document.getElementById(f.el);
+            if (el) el.addEventListener('input', scheduleContextSave);
+        });
+    }
+    initContextPanel();
+
+    // ── Conversation persistence (survives iframe navigation / page reload) ──
+    function saveConversation() {
+        try {
+            if (state.messages.length > 0) {
+                localStorage.setItem(CONV_STORAGE_KEY, JSON.stringify(state.messages));
+            } else {
+                localStorage.removeItem(CONV_STORAGE_KEY);
+            }
+        } catch (_) {}
+    }
+    function loadConversation() {
+        try {
+            const raw = localStorage.getItem(CONV_STORAGE_KEY);
+            return raw ? JSON.parse(raw) : null;
+        } catch (_) { return null; }
+    }
+    function initConversationRestore() {
+        const saved = loadConversation();
+        if (!saved || saved.length === 0) return;
+        state.messages = saved;
+        hideWelcomeScreen();
+        // Render simplified history bubbles — same visual style as a live session
+        for (const msg of saved) {
+            if (msg.role === 'user') {
+                const el = document.createElement('div');
+                el.className = 'odradek-msg msg-user';
+                el.innerHTML = '<div class="msg-label">You</div>'
+                    + '<div class="msg-body">' + escHtml(msg.content) + '</div>';
+                messagesEl.appendChild(el);
+            } else if (msg.role === 'assistant' && msg.content && msg.content.trim()) {
+                const el = document.createElement('div');
+                el.className = 'odradek-msg msg-ai';
+                el.innerHTML = '<div class="msg-label">Odradek AI</div>'
+                    + '<div class="msg-body">' + renderMarkdown(msg.content) + '</div>';
+                messagesEl.appendChild(el);
+            }
+        }
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    // Save state before page unloads (catches all navigation causes)
+    window.addEventListener('beforeunload', saveConversation);
+    // Intercept F5 / Ctrl+R / Cmd+R — reload only the Mautic iframe, not the whole page
+    if (!PANEL_MODE) {
+        document.addEventListener('keydown', (e) => {
+            const isReload = e.key === 'F5'
+                || ((e.ctrlKey || e.metaKey) && (e.key === 'r' || e.key === 'R'));
+            if (isReload) {
+                e.preventDefault();
+                reloadIframe();
+            }
+        });
+    }
+
     // ── Welcome screen ───────────────────────────────────────────────────────
     // Odradek spool mascot (half-block art):
     //
@@ -615,6 +747,7 @@
     }
 
     showWelcomeScreen();
+    initConversationRestore();
 
     // ── Exchange card system ─────────────────────────────────────────────────
 
@@ -1143,6 +1276,7 @@
 
         // Add to history
         state.messages.push({ role: 'user', content: text });
+        saveConversation();
 
         // Start exchange card + busy animation
         startExchangeCard(text);
@@ -1156,13 +1290,14 @@
         // the checkbox is unchecked, and the approve handler needs these messages.
         state.pendingPlanMessages = [...state.messages];
 
-        sendMessages(state.messages, ctx, planMode, false);
+        const aiCtx = loadAiContext();
+        sendMessages(state.messages, ctx, planMode, false, aiCtx);
     }
 
-    function sendMessages(messages, context, planMode, approved) {
+    function sendMessages(messages, context, planMode, approved, aiContext) {
         setBusy(true);
 
-        const payload = { messages, context, planMode, approved };
+        const payload = { messages, context, planMode, approved, aiContext: aiContext || {} };
 
         // Batch state — maps batchId → activity line escaped id
         const batchActIds = {};
@@ -1401,7 +1536,7 @@
 
                             startExchangeCard(displayText);
                             startBusy();
-                            sendMessages(msgs, buildContext(), false, true);
+                            sendMessages(msgs, buildContext(), false, true, loadAiContext());
                             state.pendingPlanMessages = null;
                         }
                     });
@@ -1449,6 +1584,9 @@
                 const lastUserMsg = state.messages.filter(m => m.role === 'user').pop();
                 if (lastUserMsg) addRecentActivity(lastUserMsg.content);
 
+                // Persist conversation so it survives page reloads
+                saveConversation();
+
                 stopBusy();
                 setBusy(false);
             }
@@ -1468,6 +1606,7 @@
     clearBtn.addEventListener('click', () => {
         state.messages     = [];
         state.contextItems = [];
+        saveConversation();   // removes from localStorage (messages is now empty)
         clearCardState();
         messagesEl.innerHTML = '';
         chipsEl.innerHTML    = '';

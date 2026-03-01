@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Odradek AI — Mautic</title>
-    <link rel="stylesheet" href="{{ assetBase }}/css/odradek-ai.css?v=3">
+    <link rel="stylesheet" href="{{ assetBase }}/css/odradek-ai.css?v=6">
     <style>
         /* Plan card — questions callout (inline to guarantee load) */
         .exchange-main .plan-questions {
@@ -68,6 +68,41 @@
     <!-- ── Top pane: Mautic iframe ── -->
     <div id="odradek-mautic-pane">
         <div id="odradek-iframe-toolbar">
+
+            <!-- ── Odradek brand logo ── -->
+            <div id="odradek-brand" title="Odradek AI — Autonomous Mautic Intelligence">
+                <svg class="odradek-logo-svg" width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <!-- Outer dashed orbit ring (Kafka's thread) -->
+                    <circle cx="16" cy="16" r="14" stroke="#007A68" stroke-width="0.75" stroke-dasharray="2.5 2" opacity="0.35"/>
+                    <!-- Mid ring -->
+                    <circle cx="16" cy="16" r="9" stroke="#007A68" stroke-width="0.5" opacity="0.2"/>
+                    <!-- 8 arms (star-shaped spool) -->
+                    <line x1="16" y1="2"    x2="16" y2="30"   stroke="#00A088" stroke-width="1.1" stroke-linecap="round" opacity="0.75"/>
+                    <line x1="2"  y1="16"   x2="30" y2="16"   stroke="#00A088" stroke-width="1.1" stroke-linecap="round" opacity="0.75"/>
+                    <line x1="4.69" y1="4.69" x2="27.31" y2="27.31" stroke="#00C4A8" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+                    <line x1="27.31" y1="4.69" x2="4.69" y2="27.31" stroke="#00C4A8" stroke-width="1.1" stroke-linecap="round" opacity="0.6"/>
+                    <!-- Center ring + glow -->
+                    <circle cx="16" cy="16" r="5"   fill="#0d1117" stroke="#00C4A8" stroke-width="1.4"/>
+                    <circle cx="16" cy="16" r="2.5" fill="#00C4A8" class="odradek-core-pulse"/>
+                    <circle cx="16" cy="16" r="1"   fill="#c9d1d9"/>
+                    <!-- Cardinal tip nodes -->
+                    <circle cx="16"    cy="2"     r="1.8" fill="#007A68"/>
+                    <circle cx="16"    cy="30"    r="1.8" fill="#007A68"/>
+                    <circle cx="2"     cy="16"    r="1.8" fill="#007A68"/>
+                    <circle cx="30"    cy="16"    r="1.8" fill="#007A68"/>
+                    <!-- Diagonal tip nodes -->
+                    <circle cx="4.69"  cy="4.69"  r="1.5" fill="#00A088"/>
+                    <circle cx="27.31" cy="27.31" r="1.5" fill="#00A088"/>
+                    <circle cx="27.31" cy="4.69"  r="1.5" fill="#00A088"/>
+                    <circle cx="4.69"  cy="27.31" r="1.5" fill="#00A088"/>
+                </svg>
+                <div id="odradek-brand-text">
+                    <span id="odradek-brand-name">ODRADEK</span>
+                    <span id="odradek-brand-sub">AI</span>
+                </div>
+            </div>
+
+            <div id="odradek-brand-divider"></div>
             <button id="odradek-back" title="Back">&#8592;</button>
             <button id="odradek-forward" title="Forward">&#8594;</button>
             <span id="odradek-url-display"></span>
@@ -88,30 +123,172 @@
 
     <!-- ── Bottom pane: AI chat ── -->
     <div id="odradek-ai-pane">
-        <div id="odradek-header">
-            <span class="odradek-logo">&#11041; Odradek AI</span>
-            <span id="odradek-model-badge">{{ model|default('mistral-large-latest') }}</span>
-            <label class="odradek-toggle" title="Plan mode: preview steps before execution">
-                <input type="checkbox" id="odradek-plan-mode">
-                <span>Plan Mode</span>
-            </label>
-            <button id="odradek-clear" title="Clear conversation history">&#10005; Clear</button>
-        </div>
 
-        <div id="odradek-messages"></div>
+        <!-- ── Left nav rail ── -->
+        <nav id="odradek-nav-rail">
+            <button id="odradek-nav-chat" class="nav-rail-btn nav-active" title="Chat">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M14 1H2C1.45 1 1 1.45 1 2v9c0 .55.45 1 1 1h2v2.5l3-2.5H14c.55 0 1-.45 1-1V2c0-.55-.45-1-1-1z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" fill="none"/>
+                </svg>
+            </button>
+            <div class="nav-rail-spacer"></div>
+            <button id="odradek-nav-context" class="nav-rail-btn" title="AI Context">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <line x1="2" y1="4" x2="14" y2="4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <line x1="2" y1="8" x2="14" y2="8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <line x1="2" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+                    <circle cx="5" cy="4" r="1.8" fill="#0d1117" stroke="currentColor" stroke-width="1.2"/>
+                    <circle cx="11" cy="8" r="1.8" fill="#0d1117" stroke="currentColor" stroke-width="1.2"/>
+                    <circle cx="7" cy="12" r="1.8" fill="#0d1117" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+            </button>
+        </nav>
 
-        <div id="odradek-input-area">
-            <div id="odradek-context-chips"></div>
-            <div id="odradek-quick-actions"></div>
-            <textarea
-                id="odradek-input"
-                placeholder="Ask the AI to do anything in Mautic… (Enter to send, Shift+Enter for newline)"
-                rows="3"
-                spellcheck="true"
-            ></textarea>
-            <div id="odradek-input-actions">
-                <span id="odradek-status"></span>
-                <button id="odradek-send">Send &#8629;</button>
+        <!-- ── Main body (header + views) ── -->
+        <div id="odradek-ai-body">
+            <div id="odradek-header">
+                <span class="odradek-logo">
+                    <svg width="16" height="16" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="16" cy="16" r="14" stroke="#007A68" stroke-width="0.75" stroke-dasharray="2.5 2" opacity="0.4"/>
+                        <line x1="16" y1="2"    x2="16" y2="30"   stroke="#00A088" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+                        <line x1="2"  y1="16"   x2="30" y2="16"   stroke="#00A088" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>
+                        <line x1="4.69" y1="4.69" x2="27.31" y2="27.31" stroke="#00C4A8" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>
+                        <line x1="27.31" y1="4.69" x2="4.69" y2="27.31" stroke="#00C4A8" stroke-width="1.2" stroke-linecap="round" opacity="0.65"/>
+                        <circle cx="16" cy="16" r="5" fill="#0d1117" stroke="#00C4A8" stroke-width="1.5"/>
+                        <circle cx="16" cy="16" r="2.5" fill="#00C4A8"/>
+                        <circle cx="16" cy="16" r="1"   fill="#c9d1d9"/>
+                        <circle cx="16" cy="2"  r="1.8" fill="#007A68"/>
+                        <circle cx="16" cy="30" r="1.8" fill="#007A68"/>
+                        <circle cx="2"  cy="16" r="1.8" fill="#007A68"/>
+                        <circle cx="30" cy="16" r="1.8" fill="#007A68"/>
+                        <circle cx="4.69"  cy="4.69"  r="1.4" fill="#00A088"/>
+                        <circle cx="27.31" cy="27.31" r="1.4" fill="#00A088"/>
+                        <circle cx="27.31" cy="4.69"  r="1.4" fill="#00A088"/>
+                        <circle cx="4.69"  cy="27.31" r="1.4" fill="#00A088"/>
+                    </svg>
+                    Odradek AI
+                </span>
+                <span id="odradek-model-badge">{{ model|default('mistral-large-latest') }}</span>
+                <label class="odradek-toggle" title="Plan mode: preview steps before execution">
+                    <input type="checkbox" id="odradek-plan-mode">
+                    <span>Plan Mode</span>
+                </label>
+                <button id="odradek-clear" title="Clear conversation history">&#10005; Clear</button>
+                <button id="odradek-minimize" title="Minimize AI panel">&#8964;</button>
+            </div>
+
+            <!-- ── Chat view (default active) ── -->
+            <div id="odradek-view-chat">
+                <div id="odradek-messages"></div>
+
+                <div id="odradek-input-area">
+                    <div id="odradek-context-chips"></div>
+                    <div id="odradek-quick-actions"></div>
+
+                    <!-- ── Inline action drawer (replaces window.prompt popups) ── -->
+                    <div id="odradek-action-drawer" hidden>
+                        <div id="odradek-action-drawer-top">
+                            <span id="odradek-action-drawer-title">
+                                <span id="odradek-action-drawer-icon"></span>
+                                <span id="odradek-action-drawer-label"></span>
+                            </span>
+                            <button id="odradek-action-cancel" type="button">&#10005; Cancel</button>
+                        </div>
+                        <p id="odradek-action-drawer-hint"></p>
+                        <div id="odradek-action-drawer-row">
+                            <input type="text" id="odradek-action-input" autocomplete="off" spellcheck="false" />
+                            <button id="odradek-action-run" type="button">Run &#8629;</button>
+                        </div>
+                    </div>
+
+                    <textarea
+                        id="odradek-input"
+                        placeholder="Ask the AI to do anything in Mautic… (Enter to send, Shift+Enter for newline)"
+                        rows="3"
+                        spellcheck="true"
+                    ></textarea>
+                    <div id="odradek-input-actions">
+                        <div id="odradek-status-bar" class="status-idle">
+                            <span id="odradek-status-anim">&#9670;</span>
+                            <span id="odradek-status-phrase"></span>
+                            <span id="odradek-status-timer"></span>
+                        </div>
+                        <button id="odradek-send">Send &#8629;</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Context view (hidden by default) ── -->
+            <div id="odradek-view-context" class="view-hidden">
+                <div class="ctx-panel-header">
+                    <span class="ctx-panel-title">&#9632; AI Context</span>
+                    <span id="odradek-ctx-saved">&#10003; Saved</span>
+                </div>
+
+                <!-- Section: Organization -->
+                <div class="ctx-section">
+                    <div class="ctx-section-title">Organization</div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-company-name">Company / Organization</label>
+                        <input type="text" id="ctx-company-name" class="ctx-input" placeholder="e.g. Acme Corp" autocomplete="off"/>
+                    </div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-industry">Industry / Vertical</label>
+                        <input type="text" id="ctx-industry" class="ctx-input" placeholder="e.g. B2B SaaS, E-commerce, Healthcare" autocomplete="off"/>
+                    </div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-logo-url">Logo URL</label>
+                        <input type="text" id="ctx-logo-url" class="ctx-input" placeholder="https://example.com/logo.png" autocomplete="off"/>
+                    </div>
+                </div>
+
+                <!-- Section: Brand -->
+                <div class="ctx-section">
+                    <div class="ctx-section-title">Brand</div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-brand-guidelines">Brand Guidelines</label>
+                        <textarea id="ctx-brand-guidelines" class="ctx-textarea" rows="3" placeholder="e.g. Use teal (#007A68) as primary colour. Headlines in sentence case. Avoid exclamation marks."></textarea>
+                    </div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-tone-of-voice">Tone of Voice</label>
+                        <input type="text" id="ctx-tone-of-voice" class="ctx-input" placeholder="e.g. Professional but friendly, concise, no jargon" autocomplete="off"/>
+                    </div>
+                </div>
+
+                <!-- Section: Audience -->
+                <div class="ctx-section">
+                    <div class="ctx-section-title">Audience</div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-target-personas">Target Personas</label>
+                        <textarea id="ctx-target-personas" class="ctx-textarea" rows="3" placeholder="e.g. Marketing managers at mid-market B2B firms (50–500 employees), pain points: ROI tracking, team alignment."></textarea>
+                    </div>
+                </div>
+
+                <!-- Section: Marketing -->
+                <div class="ctx-section">
+                    <div class="ctx-section-title">Marketing</div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-marketing-goals">Marketing Goals</label>
+                        <textarea id="ctx-marketing-goals" class="ctx-textarea" rows="2" placeholder="e.g. Increase MQL pipeline by 30%, reduce churn, grow newsletter to 10k subscribers."></textarea>
+                    </div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-key-products">Key Products / Services</label>
+                        <textarea id="ctx-key-products" class="ctx-textarea" rows="2" placeholder="e.g. OdradekAI Pro ($99/mo) — AI-powered Mautic assistant. OdradekAI Enterprise — custom pricing."></textarea>
+                    </div>
+                </div>
+
+                <!-- Section: Compliance -->
+                <div class="ctx-section">
+                    <div class="ctx-section-title">Compliance &amp; Other</div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-compliance-notes">Compliance Notes</label>
+                        <textarea id="ctx-compliance-notes" class="ctx-textarea" rows="2" placeholder="e.g. GDPR-regulated (EU). Double opt-in required. No purchased lists."></textarea>
+                    </div>
+                    <div class="ctx-field">
+                        <label class="ctx-label" for="ctx-other-context">Additional Context</label>
+                        <textarea id="ctx-other-context" class="ctx-textarea" rows="2" placeholder="Anything else the AI should always know…"></textarea>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -119,9 +296,12 @@
 </div>
 
 <script>
-    window.ODRADEK_CHAT_URL = {{ chatUrl|json_encode|raw }};
+    window.ODRADEK_CHAT_URL   = {{ chatUrl|json_encode|raw }};
     window.ODRADEK_CSRF_TOKEN = {{ csrfToken|json_encode|raw }};
+    window.ODRADEK_USER_NAME  = {{ userName|json_encode|raw }};
+    window.ODRADEK_API_KEY_SET = {{ apiKeySet ? 'true' : 'false' }};
+    window.ODRADEK_MODEL      = {{ model|json_encode|raw }};
 </script>
-<script src="{{ assetBase }}/js/odradek-ai.js?v=4"></script>
+<script src="{{ assetBase }}/js/odradek-ai.js?v=7"></script>
 </body>
 </html>
