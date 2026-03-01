@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-mautic_root_2026}
+      MYSQL_DATABASE: mautic
+      MYSQL_USER: mautic
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-mautic_prod_2026}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-mautic_root_2026}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mautic-net
+
+  mautic:
+    image: mautic/mautic:5-apache
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      MAUTIC_DB_HOST: db
+      MAUTIC_DB_USER: mautic
+      MAUTIC_DB_PASSWORD: ${MYSQL_PASSWORD:-mautic_prod_2026}
+      MAUTIC_DB_NAME: mautic
+    volumes:
+      - mautic_data:/var/www/html
+      - ./plugins/OdradekAIBundle:/var/www/html/docroot/plugins/OdradekAIBundle
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - mautic-net
+
+volumes:
+  mysql_data:
+  mautic_data:
+
+networks:
+  mautic-net:
+    driver: bridge

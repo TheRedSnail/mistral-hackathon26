@@ -48,6 +48,10 @@ htmlcov/
 
 # ─── Build artifacts ─────────────────────────────────────
 *.pyc
+.next/
+
+# ─── Playwright / MCP ────────────────────────────────────
+.playwright-mcp/
 
 # ─── Tool configs ───────────────────────────────────────
 .claude/
