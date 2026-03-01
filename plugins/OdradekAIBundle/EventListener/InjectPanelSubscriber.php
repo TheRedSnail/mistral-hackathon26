@@ -313,12 +313,15 @@ class InjectPanelSubscriber implements EventSubscriberInterface
                               document.querySelector('#app-content') ||
                               document.body).innerText.substring(0, 3000)
             };
-            frame.contentWindow.postMessage(ctx, '*');
+            // Security: Use specific origin instead of wildcard '*'
+            frame.contentWindow.postMessage(ctx, window.location.origin);
         } catch(e) { /* cross-origin safety */ }
     }
 
     // Listen for navigation requests from the panel
     window.addEventListener('message', function(e) {
+        // Security: Validate message origin to prevent cross-origin attacks
+        if (e.origin !== window.location.origin) return;
         if (!e.data || e.data.type !== 'odradek_navigate') return;
         var path = e.data.path;
         if (path && typeof path === 'string' && path.startsWith('/')) {

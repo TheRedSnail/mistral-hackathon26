@@ -48,12 +48,23 @@ class ChatController extends CommonController
         $prevKey = 'odradek_rl_' . date('YmdH', strtotime('-1 hour'));
         $session->remove($prevKey);
 
-        $body      = json_decode($request->getContent(), true) ?? [];
+        // Security: Reject oversized payloads to prevent memory exhaustion / API cost abuse
+        $rawContent = $request->getContent();
+        if (strlen($rawContent) > 500_000) { // 500KB max
+            return new Response('Request payload too large.', 413);
+        }
+
+        $body      = json_decode($rawContent, true) ?? [];
         $messages  = $body['messages']  ?? [];
         $context   = $body['context']   ?? [];
         $approved  = $body['approved']  ?? false;
         $planMode  = $body['planMode']  ?? false;
         $aiContext = $body['aiContext'] ?? [];
+
+        // Security: Limit conversation history length to prevent context overflow
+        if (count($messages) > 100) {
+            $messages = array_slice($messages, -100);
+        }
 
         // Auto-trigger plan mode for complex multi-step operations
         if (!$planMode && !$approved) {
@@ -242,7 +253,8 @@ class ChatController extends CommonController
 
                 $emitSse('done', []);
             } catch (\Throwable $e) {
-                error_log('[OdradekAI] ' . $e->getMessage() . ' in ' . $e->getFile() . ':' . $e->getLine());
+                // Security: Log error without exposing full file paths (info disclosure risk)
+                error_log('[OdradekAI] ' . $e->getMessage());
                 $emitSse('error', ['message' => 'An error occurred. Please try again.']);
                 $emitSse('done', []);
             }

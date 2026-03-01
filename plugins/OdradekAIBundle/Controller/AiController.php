@@ -15,6 +15,12 @@ class AiController extends CommonController
 {
     public function indexAction(Request $request, CoreParametersHelper $params, CsrfTokenManagerInterface $csrfTokenManager): Response
     {
+        // Security: Only Mautic admins may access the AI UI
+        $user = $this->getUser();
+        if (!$user || !$user->isAdmin()) {
+            return new Response('Forbidden', 403);
+        }
+
         $enabled = (bool) $params->get('odradek_ai_enabled');
         $apiKey  = (string) $params->get('odradek_ai_api_key');
         $model   = (string) ($params->get('odradek_ai_model') ?: 'mistral-large-latest');
@@ -78,6 +84,12 @@ class AiController extends CommonController
      */
     public function panelAction(Request $request, CoreParametersHelper $params, CsrfTokenManagerInterface $csrfTokenManager): Response
     {
+        // Security: Only Mautic admins may access the AI panel
+        $user = $this->getUser();
+        if (!$user || !$user->isAdmin()) {
+            return new Response('Forbidden', 403);
+        }
+
         $enabled = (bool) $params->get('odradek_ai_enabled');
         $apiKey  = (string) $params->get('odradek_ai_api_key');
         $model   = (string) ($params->get('odradek_ai_model') ?: 'mistral-large-latest');

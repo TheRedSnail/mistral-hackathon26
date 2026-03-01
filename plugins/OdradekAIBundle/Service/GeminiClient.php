@@ -23,7 +23,9 @@ class GeminiClient
             throw new \RuntimeException('Gemini API key is not configured. Add it under Settings → Configuration → AI Settings.');
         }
 
-        $url  = self::BASE_URL . self::MODEL . ':generateContent?key=' . urlencode($apiKey);
+        // Security: Pass API key via header instead of URL query parameter
+        // to avoid exposure in server logs, proxy logs, and browser history
+        $url  = self::BASE_URL . self::MODEL . ':generateContent';
         $body = json_encode([
             'contents'         => [['parts' => [['text' => $prompt]]]],
             'generationConfig' => ['responseModalities' => ['image', 'text']],
@@ -31,11 +33,17 @@ class GeminiClient
 
         $ch = curl_init($url);
         curl_setopt_array($ch, [
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $body,
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-            CURLOPT_TIMEOUT        => 60,
+            CURLOPT_POST            => true,
+            CURLOPT_POSTFIELDS      => $body,
+            CURLOPT_RETURNTRANSFER  => true,
+            CURLOPT_HTTPHEADER      => [
+                'Content-Type: application/json',
+                'x-goog-api-key: ' . $apiKey,
+            ],
+            CURLOPT_TIMEOUT         => 60,
+            // Security: Explicitly enforce SSL certificate verification
+            CURLOPT_SSL_VERIFYPEER  => true,
+            CURLOPT_SSL_VERIFYHOST  => 2,
         ]);
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
