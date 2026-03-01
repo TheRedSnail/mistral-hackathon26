@@ -259,7 +259,7 @@ class MauticToolExecutor
     {
         $themesDir = dirname(__DIR__, 3) . '/themes';
         if (!is_dir($themesDir)) {
-            return ['success' => false, 'error' => 'Themes directory not found at: ' . $themesDir];
+            return ['success' => false, 'error' => 'Themes directory not found. Check Mautic installation.'];
         }
 
         $themes = [];
@@ -394,10 +394,16 @@ class MauticToolExecutor
         // Strip <script> and <style> tags with their contents
         $html = preg_replace('/<script\b[^>]*>[\s\S]*?<\/script>/i', '', $html);
         $html = preg_replace('/<style\b[^>]*>[\s\S]*?<\/style>/i', '', $html);
-        // Strip on* event handler attributes (e.g. onclick, onload, onerror)
+        // Strip dangerous embed/object/iframe/applet/form tags
+        $html = preg_replace('/<(iframe|object|embed|applet|form|base|meta)\b[^>]*>[\s\S]*?<\/\1>/i', '', $html);
+        $html = preg_replace('/<(iframe|object|embed|applet|form|base|meta)\b[^>]*\/?>/i', '', $html);
+        // Strip on* event handler attributes — handle leading whitespace or tag start
+        // Uses broader pattern to catch obfuscation attempts (whitespace, newlines)
         $html = preg_replace('/\s+on\w+\s*=\s*(?:"[^"]*"|\'[^\']*\'|[^\s>]*)/i', '', $html);
-        // Replace javascript: href values with #
-        $html = preg_replace('/href\s*=\s*["\']?\s*javascript:[^"\'>\s]*/i', 'href="#"', $html);
+        // Replace javascript: in href/src/action attribute values with #
+        $html = preg_replace('/(href|src|action)\s*=\s*["\']?\s*javascript:[^"\'>\s]*/i', '$1="#"', $html);
+        // Strip SVG onload and similar
+        $html = preg_replace('/<svg\b[^>]*\bon\w+\s*=[^>]*>/i', '<svg>', $html);
         return $html;
     }
 
@@ -688,11 +694,14 @@ HTML;
         $tag    = $m[0][$idx][0];
         $offset = $m[0][$idx][1];
 
+        // Security: HTML-encode the URL to prevent attribute breakout XSS
+        $safeUrl = htmlspecialchars($imageUrl, ENT_QUOTES, 'UTF-8');
+
         // Replace existing src or inject it
         if (preg_match('/\bsrc=["\']/', $tag)) {
-            $newTag = preg_replace('/\bsrc=["\'][^"\']*["\']/', 'src="' . $imageUrl . '"', $tag);
+            $newTag = preg_replace('/\bsrc=["\'][^"\']*["\']/', 'src="' . $safeUrl . '"', $tag);
         } else {
-            $newTag = preg_replace('/^<mj-image\b/i', '<mj-image src="' . $imageUrl . '"', $tag);
+            $newTag = preg_replace('/^<mj-image\b/i', '<mj-image src="' . $safeUrl . '"', $tag);
         }
 
         $newMjml = substr($mjml, 0, $offset) . $newTag . substr($mjml, $offset + strlen($tag));
@@ -1402,7 +1411,7 @@ HTML;
         $filePath  = $uploadDir . '/' . $filename;
 
         if (file_put_contents($filePath, $imageData) === false) {
-            return ['success' => false, 'error' => "Failed to write image to disk at {$filePath}."];
+            return ['success' => false, 'error' => 'Failed to write image to disk. Check upload directory permissions.'];
         }
 
         // 3. Create Mautic asset entity
@@ -1485,7 +1494,7 @@ HTML;
     {
         $themesDir = dirname(__DIR__, 3) . '/themes';
         if (!is_dir($themesDir)) {
-            return ['success' => false, 'error' => 'Themes directory not found at: ' . $themesDir];
+            return ['success' => false, 'error' => 'Themes directory not found. Check Mautic installation.'];
         }
 
         $themes = [];
@@ -1572,7 +1581,8 @@ HTML;
             $page->setTemplate($args['template']);
         }
 
-        $page->setCustomHtml($args['content'] ?? '');
+        // Security: sanitize AI-generated HTML to prevent stored XSS on public pages
+        $page->setCustomHtml($this->sanitizeEmailHtml($args['content'] ?? ''));
 
         if (!empty($args['metaDescription'])) {
             $page->setMetaDescription($args['metaDescription']);
@@ -1604,7 +1614,8 @@ HTML;
 
         $p = $args['params'] ?? [];
         if (isset($p['title']))           { $page->setTitle($p['title']); }
-        if (isset($p['content']))         { $page->setCustomHtml($p['content']); }
+        // Security: sanitize AI-generated HTML to prevent stored XSS on public pages
+        if (isset($p['content']))         { $page->setCustomHtml($this->sanitizeEmailHtml($p['content'])); }
         if (isset($p['template']))        { $page->setTemplate($p['template']); }
         if (isset($p['alias']))           { $page->setAlias($p['alias']); }
         if (isset($p['metaDescription'])) { $page->setMetaDescription($p['metaDescription']); }
@@ -1701,9 +1712,14 @@ HTML;
             $form->setDescription($args['description']);
         }
         $form->setFormType($args['formType'] ?? 'standalone');
-        $form->setPostAction($args['postAction'] ?? 'message');
+        $postAction = $args['postAction'] ?? 'message';
+        // Allowlist postAction to safe values
+        if (!in_array($postAction, ['message', 'redirect', 'return'], true)) {
+            $postAction = 'message';
+        }
+        $form->setPostAction($postAction);
         $form->setPostActionProperty(
-            $args['postActionProperty'] ?? 'Thank you! Your response has been recorded.'
+            $this->sanitizeEmailHtml($args['postActionProperty'] ?? 'Thank you! Your response has been recorded.')
         );
         $form->setIsPublished($args['isPublished'] ?? true);
         $form->setRenderStyle(false);
@@ -1821,8 +1837,11 @@ HTML;
         $p = $args['params'] ?? [];
         if (isset($p['name']))               { $form->setName($p['name']); }
         if (isset($p['description']))        { $form->setDescription($p['description']); }
-        if (isset($p['postAction']))         { $form->setPostAction($p['postAction']); }
-        if (isset($p['postActionProperty'])) { $form->setPostActionProperty($p['postActionProperty']); }
+        if (isset($p['postAction'])) {
+            $pa = in_array($p['postAction'], ['message', 'redirect', 'return'], true) ? $p['postAction'] : 'message';
+            $form->setPostAction($pa);
+        }
+        if (isset($p['postActionProperty'])) { $form->setPostActionProperty($this->sanitizeEmailHtml($p['postActionProperty'])); }
         if (isset($p['isPublished']))        { $form->setIsPublished((bool) $p['isPublished']); }
 
         $this->formModel->saveEntity($form);

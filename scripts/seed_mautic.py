@@ -4,20 +4,70 @@ seed_mautic.py — Mautic test data seeder
 Inserts realistic contacts, companies, segments, and engagement data
 directly into MySQL via docker exec. No external dependencies required.
 
-Usage:
+Usage (local dev):
     python scripts/seed_mautic.py
+
+Usage (production / custom container):
+    python scripts/seed_mautic.py --container mistral_hackathon-db-1 --password mautic_prod_2026
+
+Environment variables (alternative to CLI flags):
+    MAUTIC_DB_CONTAINER  — Docker container name (auto-detected if not set)
+    MAUTIC_DB_USER       — MySQL user (default: mautic)
+    MAUTIC_DB_PASSWORD   — MySQL password (default: mautic)
+    MAUTIC_DB_NAME       — Database name (default: mautic)
 """
 
 import subprocess
 import random
 import sys
+import os
+import argparse
 from datetime import datetime, timedelta
 
+
+def detect_db_container() -> str:
+    """Auto-detect the MySQL container name by looking for running containers with 'db' in the name."""
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--format", "{{.Names}}", "--filter", "ancestor=mysql:8.0"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            containers = result.stdout.strip().splitlines()
+            # Prefer containers with 'hackathon' in the name, then any mysql container
+            for c in containers:
+                if "hackathon" in c.lower() and "db" in c.lower():
+                    return c.strip()
+            return containers[0].strip()
+    except Exception:
+        pass
+    return "hackathon-db-1"  # fallback
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Mautic test data seeder")
+    parser.add_argument("--container", "-c",
+                        default=os.environ.get("MAUTIC_DB_CONTAINER", ""),
+                        help="Docker DB container name (auto-detected if omitted)")
+    parser.add_argument("--user", "-u",
+                        default=os.environ.get("MAUTIC_DB_USER", "mautic"),
+                        help="MySQL user (default: mautic)")
+    parser.add_argument("--password", "-p",
+                        default=os.environ.get("MAUTIC_DB_PASSWORD", "mautic"),
+                        help="MySQL password (default: mautic)")
+    parser.add_argument("--db", "-d",
+                        default=os.environ.get("MAUTIC_DB_NAME", "mautic"),
+                        help="Database name (default: mautic)")
+    return parser.parse_args()
+
+
+_args = parse_args()
+
 # ── Configuration ──────────────────────────────────────────────────────────────
-DB_CONTAINER = "hackathon-db-1"
-DB_USER      = "mautic"
-DB_PASS      = "mautic"
-DB_NAME      = "mautic"
+DB_CONTAINER = _args.container if _args.container else detect_db_container()
+DB_USER      = _args.user
+DB_PASS      = _args.password
+DB_NAME      = _args.db
 
 random.seed(42)  # reproducible data
 
@@ -598,35 +648,38 @@ def seed_upcoming_emails(contacts: list[dict], admin_id: int) -> None:
 
 def main():
     print("=== Mautic Test Data Seeder ===\n")
+    print(f"  DB container: {DB_CONTAINER}")
+    print(f"  DB user:      {DB_USER}")
+    print(f"  DB name:      {DB_NAME}\n")
 
-    print("[1/9] Checking DB connection...")
+    print("[ 1/13] Checking DB connection...")
     mysql("SELECT 1;")
-    print("      DB OK")
+    print("        DB OK")
 
-    print("[2/9] Getting admin user ID...")
+    print("[ 2/13] Getting admin user ID...")
     admin_id = get_admin_id()
-    print(f"      admin_id = {admin_id}")
+    print(f"        admin_id = {admin_id}")
 
-    print("[3/9] Seeding companies...")
+    print("[ 3/13] Seeding companies...")
     company_ids = seed_companies(admin_id)
 
-    print("[4/9] Seeding contacts...")
+    print("[ 4/13] Seeding contacts...")
     contacts = seed_contacts(admin_id)
 
-    print("[5/9] Linking contacts to companies...")
+    print("[ 5/13] Linking contacts to companies...")
     seed_company_links(contacts, company_ids)
 
-    print("[6/9] Seeding segments...")
+    print("[ 6/13] Seeding segments...")
     segment_ids = seed_segments(admin_id)
 
-    print("[7/9] Assigning segment memberships...")
+    print("[ 7/13] Assigning segment memberships...")
     seed_segment_members(contacts, segment_ids)
 
-    print("[8/9] Seeding email templates + stats...")
+    print("[ 8/13] Seeding email templates + stats...")
     email_ids = seed_emails(admin_id)
     seed_email_stats(contacts, email_ids, segment_ids)
 
-    print("[9/9] Seeding point change logs...")
+    print("[ 9/13] Seeding point change logs...")
     seed_point_logs(contacts, admin_id)
 
     print("[10/13] Seeding page hits (Page Visits widget)...")
@@ -643,7 +696,7 @@ def main():
 
     print("\n=== Seeding complete! ===")
     print("\nVerification query:")
-    print("  docker exec hackathon-db-1 mysql -umautic -pmautic mautic -e \\")
+    print(f"  docker exec {DB_CONTAINER} mysql -u{DB_USER} -p{DB_PASS} {DB_NAME} -e \\")
     print("    \"SELECT 'contacts' t, COUNT(*) n FROM leads")
     print("     UNION SELECT 'companies', COUNT(*) FROM companies")
     print("     UNION SELECT 'email_stats', COUNT(*) FROM email_stats")

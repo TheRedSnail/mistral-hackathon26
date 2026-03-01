@@ -82,6 +82,8 @@
     let parentPageContext = null;
     if (PANEL_MODE) {
         window.addEventListener('message', (e) => {
+            // Security: Validate message origin to prevent cross-origin injection
+            if (e.origin !== window.location.origin) return;
             if (e.data && e.data.type === 'odradek_page_context') {
                 parentPageContext = {
                     url:         e.data.url   || '',
@@ -240,7 +242,8 @@
         // In panel mode, navigate the parent Mautic page
         if (PANEL_MODE) {
             try {
-                window.parent.postMessage({ type: 'odradek_navigate', path: safePath }, '*');
+                // Security: Use specific origin instead of wildcard
+                window.parent.postMessage({ type: 'odradek_navigate', path: safePath }, window.location.origin);
             } catch (_) {}
             return;
         }
@@ -249,7 +252,7 @@
 
     function reloadIframe() {
         if (PANEL_MODE) {
-            try { window.parent.postMessage({ type: 'odradek_navigate', path: window.parent.location.pathname }, '*'); } catch (_) {}
+            try { window.parent.postMessage({ type: 'odradek_navigate', path: window.parent.location.pathname }, window.location.origin); } catch (_) {}
             return;
         }
         try {
@@ -500,9 +503,10 @@
             const liveHtml     = (el && el.innerHTML) ? el.innerHTML : '';
             const modelContent = c.get('content') || '';
             const html         = liveHtml || (c.toHTML ? c.toHTML() : '') || modelContent;
-            const tmp          = document.createElement('div');
-            tmp.innerHTML      = liveHtml || modelContent;
-            const text         = (tmp.innerText || tmp.textContent || '').trim();
+            // Security: Use DOMParser instead of innerHTML to avoid triggering event handlers
+            const rawHtml      = liveHtml || modelContent;
+            const parsed       = new DOMParser().parseFromString(rawHtml || '', 'text/html');
+            const text         = (parsed.body.textContent || '').trim();
             dbg('[OdradekGJS] buildGjsChip[' + idx + '] — type:', type, 'textPreview:', text.slice(0, 80));
             return { index: idx, type, text: text.slice(0, 500), html: html.slice(0, 2000) };
         });
@@ -613,14 +617,25 @@
     initContextPanel();
 
     // ── Conversation persistence (survives iframe navigation / page reload) ──
+    const MAX_STORED_MESSAGES = 50; // Prevent localStorage bloat
+
     function saveConversation() {
         try {
             if (state.messages.length > 0) {
-                localStorage.setItem(CONV_STORAGE_KEY, JSON.stringify(state.messages));
+                // Only store the last N messages to prevent localStorage quota exhaustion
+                const toStore = state.messages.length > MAX_STORED_MESSAGES
+                    ? state.messages.slice(-MAX_STORED_MESSAGES)
+                    : state.messages;
+                localStorage.setItem(CONV_STORAGE_KEY, JSON.stringify(toStore));
             } else {
                 localStorage.removeItem(CONV_STORAGE_KEY);
             }
-        } catch (_) {}
+        } catch (e) {
+            // Handle QuotaExceededError by clearing old data
+            if (e.name === 'QuotaExceededError') {
+                try { localStorage.removeItem(CONV_STORAGE_KEY); } catch (_) {}
+            }
+        }
     }
     function loadConversation() {
         try {
@@ -1347,7 +1362,15 @@
         sendMessages(state.messages, ctx, planMode, false, aiCtx);
     }
 
+    // Track active SSE AbortController so we can cancel in-flight requests
+    let activeAbortController = null;
+
     function sendMessages(messages, context, planMode, approved, aiContext) {
+        // Cancel any in-flight request before starting a new one
+        if (activeAbortController) {
+            try { activeAbortController.abort(); } catch (_) {}
+        }
+
         setBusy(true);
 
         const payload = { messages, context, planMode, approved, aiContext: aiContext || {} };
@@ -1364,9 +1387,9 @@
         let didMutate    = false;
         let didNavigate  = false; // skip auto-reload when navigate_mautic was called this turn
 
-        // Manual POST SSE via fetch + ReadableStream
-        const source = new EventSource(CHAT_URL + '?_sse=1');
-        source.close();
+        // Security: Use AbortController to cancel orphaned SSE streams
+        const abortController = new AbortController();
+        activeAbortController = abortController;
 
         fetch(CHAT_URL, {
             method:  'POST',
@@ -1375,6 +1398,7 @@
                 'X-CSRF-Token': window.ODRADEK_CSRF_TOKEN || '',
             },
             body:    JSON.stringify(payload),
+            signal:  abortController.signal,
         }).then(res => {
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const reader = res.body.getReader();
@@ -1409,6 +1433,8 @@
 
             return pump();
         }).catch(err => {
+            // Silently ignore abort errors (user-initiated cancellation)
+            if (err.name === 'AbortError') return;
             // Show error in exchange-main if available
             if (state.currentMainBody) {
                 state.currentMainBody.classList.remove('odradek-cursor');
@@ -1418,6 +1444,10 @@
             clearCardState();
             stopBusy();
             setBusy(false);
+        }).finally(() => {
+            if (activeAbortController === abortController) {
+                activeAbortController = null;
+            }
         });
 
         // ── SSE event handler ──────────────────────────────────────────────
