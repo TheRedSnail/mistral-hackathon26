@@ -32,13 +32,38 @@ Then in the Mautic UI:
 
 ### 3. Seed dummy data (optional but recommended)
 
-A fresh Mautic install has no contacts or engagement data. Run the seeder to populate realistic test data:
+A fresh Mautic install has no contacts or engagement data. Run the seeder to populate realistic test data.
+
+**Local development** (auto-detects the DB container):
 
 ```bash
 python scripts/seed_mautic.py
 ```
 
-This inserts directly into MySQL via `docker exec` — no API auth needed. It adds:
+**Production / custom deployment** (specify container and credentials):
+
+```bash
+python scripts/seed_mautic.py --container mistral_hackathon-db-1 --password mautic_prod_2026
+```
+
+You can also use environment variables instead of CLI flags:
+
+```bash
+export MAUTIC_DB_CONTAINER=mistral_hackathon-db-1
+export MAUTIC_DB_PASSWORD=mautic_prod_2026
+python scripts/seed_mautic.py
+```
+
+All available options:
+
+| Flag | Env Variable | Default | Description |
+|---|---|---|---|
+| `--container` / `-c` | `MAUTIC_DB_CONTAINER` | _(auto-detect)_ | Docker DB container name |
+| `--user` / `-u` | `MAUTIC_DB_USER` | `mautic` | MySQL user |
+| `--password` / `-p` | `MAUTIC_DB_PASSWORD` | `mautic` | MySQL password |
+| `--db` / `-d` | `MAUTIC_DB_NAME` | `mautic` | Database name |
+
+The seeder inserts directly into MySQL via `docker exec` — no API auth needed. It adds:
 
 | Entity | Count |
 |---|---|
@@ -48,25 +73,32 @@ This inserts directly into MySQL via `docker exec` — no API auth needed. It ad
 | Email templates | 5 (draft entities) |
 | Email stats | ~400 sends, ~160 opens (40% open rate) |
 | Point change logs | ~200 events |
+| Page hits | ~300 (last 90 days) |
+| Forms + submissions | 3 forms, ~80 submissions |
+| Audit log entries | ~200 events |
+| Upcoming email campaign | 1 campaign, ~20 scheduled sends |
 
 The seeder is **additive** — safe to run multiple times. Each run appends a new batch.
 
-After seeding, clear Mautic's cache so the UI reflects the new data:
+After seeding, clear Mautic's cache and update segments so the UI reflects the new data:
 
 ```bash
 docker compose exec mautic php bin/console cache:clear
-```
-
-To see segment member counts populated in the UI, run the segment update cron once:
-
-```bash
 docker compose exec mautic php bin/console mautic:segments:update --env=prod
 ```
 
-Verify the counts with:
+The seeder prints a verification query at the end, but you can also verify manually:
 
 ```bash
+# Local dev:
 docker exec hackathon-db-1 mysql -umautic -pmautic mautic -e \
+  "SELECT 'contacts' t, COUNT(*) n FROM leads
+   UNION SELECT 'companies', COUNT(*) FROM companies
+   UNION SELECT 'email_stats', COUNT(*) FROM email_stats
+   UNION SELECT 'segments', COUNT(*) FROM lead_lists WHERE is_global=1;"
+
+# Production (adjust container name and password):
+docker exec mistral_hackathon-db-1 mysql -umautic -pmautic_prod_2026 mautic -e \
   "SELECT 'contacts' t, COUNT(*) n FROM leads
    UNION SELECT 'companies', COUNT(*) FROM companies
    UNION SELECT 'email_stats', COUNT(*) FROM email_stats
