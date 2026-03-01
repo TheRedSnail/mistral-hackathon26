@@ -403,7 +403,8 @@ class ChatController extends CommonController
             $text = $msg['content'] ?? '';
             foreach ([
                 'create.*email', 'make.*email', 'write.*email', 'build.*email',
-                'newsletter', 'christmas', 'campaign',
+                'newsletter', 'christmas',
+                'create.*campaign', 'launch.*campaign', 'start.*campaign', 'set.up.*campaign',
                 'generate.*image', 'create.*image', 'make.*image',
                 'create.*segment', 'make.*segment', 'build.*segment',
                 'create.*contact', 'add.*contact',
