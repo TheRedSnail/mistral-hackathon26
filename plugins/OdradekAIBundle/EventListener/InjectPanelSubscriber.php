@@ -67,14 +67,16 @@ class InjectPanelSubscriber implements EventSubscriberInterface
             return;
         }
 
-        // Skip the standalone AI page and the panel page (avoid recursion)
+        // Skip the standalone AI page and the panel page (avoid recursion).
+        // Mautic may prefix route names (e.g. "mautic_plugin_odradek_ai_panel"),
+        // so we use str_contains and also check the URL path as a fallback.
         $route = $request->attributes->get('_route', '');
-        if (str_starts_with($route, 'odradek_ai')) {
+        $path  = $request->getPathInfo();
+        if (str_contains($route, 'odradek_ai') || str_contains($path, '/odradek/ai')) {
             return;
         }
 
         // Skip non-admin routes (public pages, API, etc.)
-        $path = $request->getPathInfo();
         if (!str_starts_with($path, '/s/')) {
             return;
         }
@@ -221,6 +223,12 @@ class InjectPanelSubscriber implements EventSubscriberInterface
 <script>
 (function() {
     'use strict';
+    // Never initialize inside an iframe (e.g. the Mautic iframe on the split-screen page)
+    if (window !== window.top) {
+        var el = document.getElementById('odradek-inject-bar');
+        if (el) el.style.display = 'none';
+        return;
+    }
     var PANEL_URL = ODRADEK_PANEL_URL_PLACEHOLDER;
     var KEY       = 'odradek_panel_state';
     var KEY_H     = 'odradek_panel_height';
