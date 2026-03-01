@@ -210,6 +210,40 @@ class ToolDefinitions
                 ],
             ],
 
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'get_email_image_components',
+                    'description' => 'Return all <mj-image> slots in a theme email\'s MJML, '
+                        . 'with their 0-based index and current src URL. '
+                        . 'Use this to find image placeholders before generating AI images.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id' => ['type' => 'integer', 'description' => 'Email ID.'],
+                        ],
+                        'required' => ['id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'update_email_image_component',
+                    'description' => 'Replace the src URL of a specific <mj-image> slot in a theme email. '
+                        . 'Use the imageIndex from get_email_image_components and the URL returned by generate_image_asset.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'id'         => ['type' => 'integer', 'description' => 'Email ID.'],
+                            'imageIndex' => ['type' => 'integer', 'description' => '0-based index from get_email_image_components.'],
+                            'imageUrl'   => ['type' => 'string',  'description' => 'Public URL of the generated asset (from generate_image_asset result).'],
+                        ],
+                        'required' => ['id', 'imageIndex', 'imageUrl'],
+                    ],
+                ],
+            ],
+
             // ── Campaigns ─────────────────────────────────────────────────────
             [
                 'type'     => 'function',

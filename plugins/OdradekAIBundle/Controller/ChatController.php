@@ -256,8 +256,10 @@ class ChatController extends CommonController
             ) ?: ($args['fields']['email'] ?? ''),
             'delete_contact', 'get_contact'             => '#' . ($args['id'] ?? '?'),
             'create_email', 'update_email', 'get_email' => $args['name'] ?? ('#' . ($args['id'] ?? '?')),
-            'get_email_components'   => '#' . ($args['id'] ?? '?'),
-            'update_email_component' => '#' . ($args['id'] ?? '?') . '[' . ($args['componentIndex'] ?? '?') . ']',
+            'get_email_components'        => '#' . ($args['id'] ?? '?'),
+            'update_email_component'      => '#' . ($args['id'] ?? '?') . '[' . ($args['componentIndex'] ?? '?') . ']',
+            'get_email_image_components'   => '#' . ($args['id'] ?? '?'),
+            'update_email_image_component' => '#' . ($args['id'] ?? '?') . '[img:' . ($args['imageIndex'] ?? '?') . ']',
             'create_segment'            => $args['name'] ?? '',
             'get_segment', 'update_segment' => '#' . ($args['id'] ?? '?'),
             'get_segment_filter_fields' => '',
@@ -288,6 +290,9 @@ class ChatController extends CommonController
                   . "     or looks like a legal/footer line — leave those unchanged. "
                   . "(5) Call update_email_component once per slot you are filling. "
                   . "(6) Call navigate_mautic with path '/s/emails/edit/{id}' so the user can preview the result. "
+                  . "(7) After completing all text slots and navigating to the preview, end your reply with:\n"
+                  . "[ASK]: Your email is ready! Would you like me to generate AI images for the image slots too? "
+                  . "(Reply **yes** and I'll create contextually relevant images and place them directly in the email.) "
                   . "Always provide HTML as inner content only (headings, paragraphs, links, lists) — never a full HTML document. "
                   . "IMPORTANT: Do NOT pause after step 3 to show a content plan or ask 'Shall I apply these changes?' — just apply them. "
                   . "The user can request changes after seeing the preview. "
@@ -307,6 +312,15 @@ class ChatController extends CommonController
         $content .= "GENERAL WORKFLOW RESUMPTION: Before calling any create_* tool, scan the conversation history for a prior result from that same tool. "
                   . "If create_contact, create_segment, or create_asset already ran successfully in this conversation, do NOT call them again — use the returned ID and continue from the interrupted step. "
                   . "Only create a new entity when the user explicitly asks to start over or create a second separate one. ";
+        $content .= "IMAGE WORKFLOW — when the user says yes to generating images for an email: "
+                  . "(a) Call get_email_image_components (NOT get_email_components) to list all mj-image slots. "
+                  . "(b) If count is 0, tell the user this theme has no image slots and stop. "
+                  . "(c) For each slot, call generate_image_asset with a vivid, specific prompt based on the email subject and content, "
+                  . "    plus a descriptive title. Use the slot index in the title (e.g. 'Summer Sale Hero Image'). "
+                  . "(d) For each generated image, immediately call update_email_image_component with the email ID, "
+                  . "    the slot imageIndex, and the asset URL returned by generate_image_asset. "
+                  . "(e) After filling all slots, call navigate_mautic with '/s/emails/edit/{id}' to preview the result. "
+                  . "Do NOT pause between slots — process all image slots in one turn. ";
         $content .= "SELF-VERIFICATION: After completing any mutating workflow, always verify your work by calling the appropriate read tool before ending, then report the confirmed state to the user. ";
         $content .= "Verification rules: ";
         $content .= "(1) After create_contact or update_contact: call get_contact with the contact ID and confirm the saved name, email, and any changed fields. ";
@@ -316,6 +330,7 @@ class ChatController extends CommonController
         $content .= "(5) After generate_image_asset or update_asset: call get_asset with the asset ID and confirm the title and MIME type. ";
         $content .= "(6) After delete operations: no read-tool call needed — confirm deletion in your message instead. ";
         $content .= "(7) Skip verification for client-side-only actions (navigate_mautic, update_grapesjs_component, get_page_info) — no server entity to check. ";
+        $content .= "(8) After update_email_image_component: call get_email_image_components and confirm the image slot src now contains the new URL. ";
         $content .= "Format: end your response with a short confirmation: e.g. 'Verified: Contact #42 saved — john@example.com, Acme Corp.' or 'Verified: Email #17 \"Summer Promo\" — 4 slots filled.' ";
         $content .= "VERIFICATION FAILURE & RETRY: If the verification read-tool returns an error, null, or data that does not match what was just saved (e.g. wrong field value, zero filters when filters were specified, asset not found), do not end the conversation. Instead: ";
         $content .= "(a) Diagnose: state what went wrong (e.g. 'The segment was saved but filters are missing — this likely means the filter field alias was incorrect.'). ";

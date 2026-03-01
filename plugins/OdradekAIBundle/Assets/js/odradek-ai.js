@@ -1236,45 +1236,57 @@
                 if (state.currentMainBody) {
                     const steps     = (data.steps     || []).map(s => `<li>${escHtml(String(s))}</li>`).join('');
                     const questions = data.questions   || [];
+                    const hasQ      = questions.length > 0;
 
                     let qaHtml = '';
-                    if (questions.length > 0) {
-                        qaHtml = '<div class="plan-questions"><strong>A few questions before I start:</strong><dl>';
+                    if (hasQ) {
+                        let qItems = '';
                         questions.forEach((item, i) => {
                             const hint = item.hint ? ` placeholder="${escHtml(item.hint)}"` : '';
-                            qaHtml += `<dt>${escHtml(item.q)}</dt>`;
-                            qaHtml += `<dd><input type="text" class="plan-answer" data-idx="${i}"${hint}></dd>`;
+                            qItems += `<div class="plan-qa-item">`
+                                + `<div class="plan-q">${escHtml(item.q)}</div>`
+                                + `<input type="text" class="plan-answer" data-idx="${i}"${hint}>`
+                                + `</div>`;
                         });
-                        qaHtml += '</dl></div>';
+                        qaHtml = '<div class="plan-questions">'
+                            + '<div class="plan-questions-label">? A few questions before I start</div>'
+                            + qItems
+                            + '<div class="plan-questions-actions">'
+                            + '<button class="plan-approve-btn">&#10003; Submit &amp; Execute</button>'
+                            + '<button class="plan-cancel-btn">&#10005; Cancel</button>'
+                            + '</div></div>';
                     }
 
-                    state.currentMainBody.classList.remove('odradek-cursor');
-                    state.currentMainBody.innerHTML = `
+                    const planBody = state.currentMainBody;
+                    planBody.classList.remove('odradek-cursor');
+                    planBody.innerHTML = `
                         <div class="plan-title">&#9635; Execution Plan</div>
                         <ol>${steps}</ol>
                         ${qaHtml}
-                        <div class="plan-actions">
+                        ${!hasQ ? `<div class="plan-actions">
                             <button class="plan-approve-btn">&#10003; Approve &amp; Execute</button>
                             <button class="plan-cancel-btn">&#10005; Cancel</button>
-                        </div>`;
+                        </div>` : ''}`;
 
-                    // Wire approve button
-                    state.currentMainBody.querySelector('.plan-approve-btn').addEventListener('click', () => {
-                        const answers = [...state.currentMainBody.querySelectorAll('.plan-answer')]
+                    // Prevent the immediately-following `done` event from
+                    // calling finalizeCard() and overwriting the plan card.
+                    clearCardState();
+
+                    // Wire approve/submit button (use planBody, not state.currentMainBody)
+                    planBody.querySelector('.plan-approve-btn').addEventListener('click', () => {
+                        const answers = [...planBody.querySelectorAll('.plan-answer')]
                             .map((inp, i) => ({ q: questions[i]?.q || `Q${i + 1}`, a: inp.value.trim() }))
                             .filter(a => a.a);
 
                         // Replace plan in old card with a notice
-                        const actionsEl = state.currentMainBody.querySelector('.plan-actions');
+                        const actionsEl = planBody.querySelector('.plan-actions');
                         if (actionsEl) actionsEl.remove();
-                        const qaEl = state.currentMainBody.querySelector('.plan-questions');
+                        const qaEl = planBody.querySelector('.plan-questions');
                         if (qaEl) qaEl.remove();
                         const notice = document.createElement('p');
                         notice.className = 'exchange-notice';
                         notice.textContent = 'Plan approved. Executing\u2026';
-                        state.currentMainBody.appendChild(notice);
-
-                        clearCardState();
+                        planBody.appendChild(notice);
 
                         if (state.pendingPlanMessages) {
                             let msgs = [...state.pendingPlanMessages];
@@ -1294,13 +1306,15 @@
                     });
 
                     // Wire cancel button
-                    state.currentMainBody.querySelector('.plan-cancel-btn').addEventListener('click', () => {
-                        state.currentMainBody.querySelector('.plan-actions').remove();
+                    planBody.querySelector('.plan-cancel-btn').addEventListener('click', () => {
+                        ['.plan-actions', '.plan-questions'].forEach(sel => {
+                            const el = planBody.querySelector(sel);
+                            if (el) el.remove();
+                        });
                         const notice = document.createElement('p');
                         notice.className = 'exchange-notice';
                         notice.textContent = 'Cancelled.';
-                        state.currentMainBody.appendChild(notice);
-                        clearCardState();
+                        planBody.appendChild(notice);
                         state.pendingPlanMessages = null;
                         stopBusy();
                         setBusy(false);

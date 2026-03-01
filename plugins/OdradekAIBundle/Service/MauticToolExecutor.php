@@ -52,7 +52,9 @@ class MauticToolExecutor
                 'create_email'          => $this->createEmail($args),
                 'update_email'          => $this->updateEmail($args),
                 'get_email_components'  => $this->getEmailComponents($args),
-                'update_email_component' => $this->updateEmailComponent($args),
+                'update_email_component'         => $this->updateEmailComponent($args),
+                'get_email_image_components'    => $this->getEmailImageComponents($args),
+                'update_email_image_component'  => $this->updateEmailImageComponent($args),
                 'list_campaigns' => $this->listCampaigns($args),
                 'get_campaign'   => $this->getCampaign($args),
                 'list_segments'              => $this->listSegments($args),
@@ -557,6 +559,74 @@ HTML;
         $this->grapesJsBuilderModel->getRepository()->saveEntity($gjs);
 
         return ['success' => true, 'message' => "Component #{$idx} of email #{$emailId} updated."];
+    }
+
+    private function getEmailImageComponents(array $args): array
+    {
+        $email = $this->emailModel->getEntity((int) $args['id']);
+        if (!$email) {
+            return ['success' => false, 'error' => "Email #{$args['id']} not found."];
+        }
+
+        $gjs = $this->grapesJsBuilderModel->getRepository()->findOneBy(['email' => $email]);
+        if (!$gjs || !$gjs->getCustomMjml()) {
+            return ['success' => false, 'error' => "Email #{$args['id']} has no MJML content."];
+        }
+
+        preg_match_all('/(<mj-image\b[^>]*?\/>)/i', $gjs->getCustomMjml(), $matches, PREG_OFFSET_CAPTURE);
+
+        $images = [];
+        foreach ($matches[1] as $idx => $match) {
+            $tag = $match[0];
+            $srcMatch = [];
+            preg_match('/\bsrc=["\']([^"\']*)["\']/', $tag, $srcMatch);
+            $images[] = [
+                'index'      => $idx,
+                'currentSrc' => $srcMatch[1] ?? '',
+            ];
+        }
+
+        return ['success' => true, 'count' => count($images), 'images' => $images];
+    }
+
+    private function updateEmailImageComponent(array $args): array
+    {
+        $emailId  = (int) $args['id'];
+        $idx      = (int) $args['imageIndex'];
+        $imageUrl = filter_var($args['imageUrl'] ?? '', FILTER_SANITIZE_URL);
+
+        $email = $this->emailModel->getEntity($emailId);
+        if (!$email) {
+            return ['success' => false, 'error' => "Email #{$emailId} not found."];
+        }
+
+        $gjs = $this->grapesJsBuilderModel->getRepository()->findOneBy(['email' => $email]);
+        if (!$gjs || !$gjs->getCustomMjml()) {
+            return ['success' => false, 'error' => "Email #{$emailId} has no MJML content."];
+        }
+
+        $mjml = $gjs->getCustomMjml();
+        preg_match_all('/(<mj-image\b[^>]*?\/>)/i', $mjml, $m, PREG_OFFSET_CAPTURE);
+
+        if (!isset($m[1][$idx])) {
+            return ['success' => false, 'error' => "Image index {$idx} not found (email has " . count($m[1]) . " mj-image blocks)."];
+        }
+
+        $tag    = $m[1][$idx][0];
+        $offset = $m[1][$idx][1];
+
+        // Replace existing src or inject it
+        if (preg_match('/\bsrc=["\']/', $tag)) {
+            $newTag = preg_replace('/\bsrc=["\'][^"\']*["\']/', 'src="' . $imageUrl . '"', $tag);
+        } else {
+            $newTag = preg_replace('/^<mj-image\b/i', '<mj-image src="' . $imageUrl . '"', $tag);
+        }
+
+        $newMjml = substr($mjml, 0, $offset) . $newTag . substr($mjml, $offset + strlen($tag));
+        $gjs->setCustomMjml($newMjml);
+        $this->grapesJsBuilderModel->getRepository()->saveEntity($gjs);
+
+        return ['success' => true, 'message' => "Image slot #{$idx} of email #{$emailId} updated with new src."];
     }
 
     // ── Campaigns ─────────────────────────────────────────────────────────────
