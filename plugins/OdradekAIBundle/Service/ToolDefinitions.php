@@ -231,13 +231,15 @@ class ToolDefinitions
                 'function' => [
                     'name'        => 'update_email_image_component',
                     'description' => 'Replace the src URL of a specific <mj-image> slot in a theme email. '
-                        . 'Use the imageIndex from get_email_image_components and the URL returned by generate_image_asset.',
+                        . 'Use the imageIndex from get_email_image_components. '
+                        . 'The imageUrl can come from generate_image_asset (newly generated) or from the url field of list_assets (reusing an existing asset). '
+                        . 'imageUrl MUST be a valid http(s) URL — never pass SVG strings, data URIs, or raw HTML.',
                     'parameters'  => [
                         'type'       => 'object',
                         'properties' => [
                             'id'         => ['type' => 'integer', 'description' => 'Email ID.'],
                             'imageIndex' => ['type' => 'integer', 'description' => '0-based index from get_email_image_components.'],
-                            'imageUrl'   => ['type' => 'string',  'description' => 'Public URL of the generated asset (from generate_image_asset result).'],
+                            'imageUrl'   => ['type' => 'string',  'description' => 'Public http(s) URL of the asset — copy the url field from generate_image_asset or list_assets exactly as returned.'],
                         ],
                         'required' => ['id', 'imageIndex', 'imageUrl'],
                     ],
@@ -537,7 +539,8 @@ class ToolDefinitions
                 'type'     => 'function',
                 'function' => [
                     'name'        => 'list_assets',
-                    'description' => 'List Mautic assets (files/images) with optional search filter.',
+                    'description' => 'List Mautic assets (files/images) with optional search filter. '
+                        . 'Each result includes a url field — use it directly in update_email_image_component to reuse the asset.',
                     'parameters'  => [
                         'type'       => 'object',
                         'properties' => [

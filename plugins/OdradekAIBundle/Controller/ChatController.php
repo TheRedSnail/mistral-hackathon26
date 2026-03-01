@@ -267,6 +267,12 @@ class ChatController extends CommonController
             'create_survey'             => $args['template'] ?? '',
             'survey_analytics'          => '#' . ($args['form_id'] ?? '?'),
             'list_survey_templates'     => '',
+            'generate_image_asset'      => $args['title'] ?? '',
+            'list_assets'               => $args['search'] ?? '',
+            'get_asset'                 => '#' . ($args['id'] ?? '?'),
+            'update_asset'              => '#' . ($args['id'] ?? '?'),
+            'list_asset_categories'     => '',
+            'create_asset_category'     => $args['title'] ?? '',
             default           => '',
         };
     }
@@ -316,14 +322,20 @@ class ChatController extends CommonController
                   . "If create_contact, create_segment, or create_asset already ran successfully in this conversation, do NOT call them again — use the returned ID and continue from the interrupted step. "
                   . "Only create a new entity when the user explicitly asks to start over or create a second separate one. ";
         $content .= "IMAGE WORKFLOW — when the user says yes to generating images for an email: "
-                  . "(a) Call get_email_image_components (NOT get_email_components) to list all mj-image slots. "
-                  . "(b) If count is 0, tell the user this theme has no image slots and stop. "
-                  . "(c) For each slot, call generate_image_asset with a vivid, specific prompt based on the email subject and content, "
-                  . "    plus a descriptive title. Use the slot index in the title (e.g. 'Summer Sale Hero Image'). "
-                  . "(d) For each generated image, immediately call update_email_image_component with the email ID, "
-                  . "    the slot imageIndex, and the asset URL returned by generate_image_asset. "
-                  . "(e) After filling all slots, call navigate_mautic with '/s/emails/edit/{id}' to preview the result. "
-                  . "Do NOT pause between slots — process all image slots in one turn. ";
+                  . "(a) Call get_email_image_components to list all mj-image slots. If count is 0, tell the user and stop. "
+                  . "(b) Before generating any new image, call list_assets with 1–3 relevant keyword searches "
+                  . "    (e.g. email subject words, 'logo', seasonal theme). Check if existing assets can be reused. "
+                  . "(c) For each slot, decide based on search results: "
+                  . "    — Logo slot (currentSrc contains 'logo', or alt/title suggests a logo): "
+                  . "      If a matching logo asset exists → reuse its url directly, no user prompt needed. "
+                  . "    — Thematic match (valentine, christmas, summer, etc. assets found for a matching email): "
+                  . "      Use [ASK]: to show the user the matching asset titles and IDs, and ask whether to "
+                  . "      reuse them or generate fresh AI images. Wait for the user's reply before continuing. "
+                  . "    — No relevant match found → call generate_image_asset with a vivid, specific prompt. "
+                  . "(d) For each slot (reused OR newly generated), call update_email_image_component with the "
+                  . "    email ID, imageIndex, and the asset url. "
+                  . "(e) After all slots are filled, call navigate_mautic with '/s/emails/edit/{id}' to preview. "
+                  . "Do NOT regenerate assets that have a suitable match — reuse saves time and keeps brand consistency. ";
         $content .= "SELF-VERIFICATION: After completing any mutating workflow, always verify your work by calling the appropriate read tool before ending, then report the confirmed state to the user. ";
         $content .= "Verification rules: ";
         $content .= "(1) After create_contact or update_contact: call get_contact with the contact ID and confirm the saved name, email, and any changed fields. ";

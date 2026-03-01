@@ -599,7 +599,14 @@ HTML;
     {
         $emailId  = (int) $args['id'];
         $idx      = (int) $args['imageIndex'];
-        $imageUrl = filter_var($args['imageUrl'] ?? '', FILTER_SANITIZE_URL);
+        $imageUrl = trim($args['imageUrl'] ?? '');
+
+        // Reject anything that isn't an HTTP/HTTPS URL or a root-relative path.
+        // This prevents SVG inline strings, data URIs, or other garbage from
+        // being stored as an image src (FILTER_SANITIZE_URL is too permissive).
+        if (!preg_match('#^(https?://|/)#i', $imageUrl)) {
+            return ['success' => false, 'error' => "Invalid imageUrl — must be an http(s) URL or a root-relative path (starts with /). Got: " . mb_substr($imageUrl, 0, 80)];
+        }
 
         $email = $this->emailModel->getEntity($emailId);
         if (!$email) {
@@ -1250,7 +1257,9 @@ HTML;
                 'description' => $asset->getDescription(),
                 'language'    => $asset->getLanguage(),
                 'extension'   => $asset->getExtension(),
+                'mime'        => $asset->getMime(),
                 'category'    => $asset->getCategory()?->getTitle(),
+                'url'         => $assetModel->generateUrl($asset, true),
             ];
         }
 
@@ -1279,6 +1288,7 @@ HTML;
                 'disallow'        => $asset->getDisallow(),
                 'category'        => $asset->getCategory()?->getTitle(),
                 'category_id'     => $asset->getCategory()?->getId(),
+                'url'             => $assetModel->generateUrl($asset, true),
             ],
         ];
     }
