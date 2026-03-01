@@ -807,6 +807,35 @@
                 ? `Health score: ${score}/100 — ${level}`
                 : 'Health score ready — see AI response for details';
         }
+        // VoC: theme analysis
+        if (result.themes) {
+            return `Discovered ${result.theme_count} theme(s) from ${result.verbatim_count} verbatims`;
+        }
+        // VoC: verbatim collection
+        if (result.verbatim_count !== undefined && !result.themes) {
+            return `Collected ${result.verbatim_count} PII-redacted verbatims`;
+        }
+        // VoC: contact voice profile
+        if (result.voc_profile) {
+            const s = result.voc_profile.sentiment || 'unknown';
+            const t = (result.voc_profile.topics || []).length;
+            return `VoC profile: ${s} sentiment, ${t} topic(s)`;
+        }
+        // VoC: theme summary drill-down
+        if (result.summary && result.theme_name) {
+            const sev = result.summary.severity || 'unknown';
+            return `Theme "${result.theme_name}": ${sev} severity`;
+        }
+        // VoC: response campaign plan
+        if (result.campaign_plan) {
+            const name   = result.campaign_plan.campaign_name || 'Campaign';
+            const emails = (result.campaign_plan.emails || []).length;
+            return `Campaign "${name}" — ${emails} email(s) planned`;
+        }
+        // VoC: insight segment created
+        if (result.segment && result.segment.contact_count !== undefined) {
+            return `Segment "${result.segment.name}" created with ${result.segment.contact_count} contacts`;
+        }
         return JSON.stringify(result).slice(0, 80);
     }
 
@@ -882,6 +911,16 @@
             hint:        'Describe the form you need — type, goal, audience, and fields.',
             placeholder: 'e.g. Webinar registration form for B2B marketers, lead capture for demo requests…',
             buildPrompt: (val) => `Create a Mautic form for: ${val.trim()}`
+        },
+        voc: {
+            icon:        '📢',
+            label:       'VoC Insights',
+            hint:        'Analyze customer feedback across forms, notes, and engagement signals.',
+            placeholder: 'Form name or ID (optional, blank = all sources)…',
+            optional:    true,
+            buildPrompt: (val) => val.trim()
+                ? `Analyze Voice of Customer themes from form "${val.trim()}"`
+                : 'Analyze Voice of Customer feedback across all sources — show themes, sentiment, and quotes'
         }
     };
 

@@ -350,6 +350,18 @@ class ChatController extends CommonController
                   . "Newsletter signup: email (required), firstname, consent checkbox, submit. "
                   . "Contact form: firstname (required), email (required), message textarea, submit. "
                   . "Webinar registration: firstname (required), lastname (required), email (required), company, job_title, submit. ";
+        $content .= "When asked about customer feedback, voice of customer, VoC analytics, or feedback themes, "
+                  . "use the voc_* tools. Workflow: "
+                  . "(1) voc_analyze_themes to discover themes across all sources. "
+                  . "(2) voc_summarize_theme to drill into a specific theme. "
+                  . "(3) voc_create_insight_segment to create a segment from impacted contacts. "
+                  . "(4) voc_suggest_response_campaign to plan a response campaign. "
+                  . "For individual contact VoC analysis, use voc_contact_voice. "
+                  . "All VoC data is automatically PII-redacted — never attempt to de-anonymize. "
+                  . "When presenting VoC themes, always show: theme name, sentiment (positive/negative/neutral/mixed), "
+                  . "intensity (1-10), mention count, representative (redacted) quotes, and trend direction. "
+                  . "After presenting themes, proactively suggest drilling into the most concerning theme "
+                  . "and creating a segment for follow-up. ";
 
         // ── Context injection with prompt-injection mitigations ─────────────
         // Strip control characters (keep newlines) and instruction-override patterns
@@ -425,6 +437,8 @@ class ChatController extends CommonController
                 'generate.*image', 'create.*image', 'make.*image',
                 'create.*segment', 'make.*segment', 'build.*segment',
                 'create.*contact', 'add.*contact',
+                'voc.*analyz', 'voice.*customer', 'feedback.*theme', 'customer.*feedback',
+                'customer.*voice', 'verbatim', 'voc.*insight',
             ] as $pattern) {
                 if (preg_match('/' . $pattern . '/i', $text)) {
                     return true;

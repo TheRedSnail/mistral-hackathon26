@@ -29,6 +29,7 @@ class MauticToolExecutor
         private readonly CoreParametersHelper $parametersHelper,
         private readonly PageModel            $pageModel,
         private readonly FormModel            $formModel,
+        private readonly VocEngine            $vocEngine,
     ) {}
 
     public function execute(string $tool, array $args): array
@@ -82,6 +83,12 @@ class MauticToolExecutor
                 'get_form'         => $this->getForm($args),
                 'create_form'      => $this->createForm($args),
                 'update_form'      => $this->updateForm($args),
+                'voc_collect_feedback'          => $this->vocCollectFeedback($args),
+                'voc_analyze_themes'            => $this->vocAnalyzeThemes($args),
+                'voc_contact_voice'             => $this->vocContactVoice($args),
+                'voc_summarize_theme'           => $this->vocSummarizeTheme($args),
+                'voc_create_insight_segment'    => $this->vocCreateInsightSegment($args),
+                'voc_suggest_response_campaign' => $this->vocSuggestResponseCampaign($args),
                 default            => ['success' => false, 'error' => "Unknown tool: {$tool}"],
             };
         } catch (\Throwable $e) {
@@ -1676,6 +1683,192 @@ HTML;
             'success' => true,
             'message' => "Form #{$args['id']} updated.",
             'form'    => ['id' => $form->getId(), 'name' => $form->getName()],
+        ];
+    }
+
+    // ── Voice of Customer (VoC) Analytics ──────────────────────────────────────
+
+    private function vocCollectFeedback(array $args): array
+    {
+        $data = $this->vocEngine->collectFeedback(
+            source:   $args['source'] ?? 'all',
+            formIds:  $args['form_ids'] ?? [],
+            dateFrom: $args['date_from'] ?? null,
+            dateTo:   $args['date_to'] ?? null,
+            limit:    (int) ($args['limit'] ?? 200),
+        );
+
+        return [
+            'success'         => true,
+            'verbatim_count'  => $data['total_count'],
+            'sources_queried' => $data['sources_queried'],
+            'contact_ids'     => $data['contact_ids'],
+            'verbatims'       => array_slice($data['verbatims'], 0, 50), // cap SSE payload
+            'message'         => sprintf(
+                'Collected %d PII-redacted verbatims from %s.',
+                $data['total_count'],
+                implode(', ', $data['sources_queried'])
+            ),
+        ];
+    }
+
+    private function vocAnalyzeThemes(array $args): array
+    {
+        // Step 1: collect verbatims
+        $data = $this->vocEngine->collectFeedback(
+            source:   $args['source'] ?? 'all',
+            formIds:  $args['form_ids'] ?? [],
+            dateFrom: $args['date_from'] ?? null,
+            dateTo:   $args['date_to'] ?? null,
+            limit:    200,
+        );
+
+        if (empty($data['verbatims'])) {
+            return ['success' => false, 'error' => 'No verbatims found for the given criteria. Try broadening date range or sources.'];
+        }
+
+        // Step 2: AI theme analysis
+        $themes = $this->vocEngine->analyzeThemes($data['verbatims']);
+
+        return [
+            'success'         => true,
+            'verbatim_count'  => $data['total_count'],
+            'sources_queried' => $data['sources_queried'],
+            'contact_ids'     => $data['contact_ids'],
+            'themes'          => $themes,
+            'theme_count'     => count($themes),
+            'message'         => sprintf(
+                'Discovered %d themes from %d verbatims across %s.',
+                count($themes),
+                $data['total_count'],
+                implode(', ', $data['sources_queried'])
+            ),
+        ];
+    }
+
+    private function vocContactVoice(array $args): array
+    {
+        $contactId = (int) $args['contact_id'];
+        $lead = $this->leadModel->getEntity($contactId);
+        if (!$lead) {
+            return ['success' => false, 'error' => "Contact #{$contactId} not found."];
+        }
+
+        $profile = $this->vocEngine->analyzeContactVoice($contactId);
+
+        $fields = $lead->getProfileFields();
+        $name   = trim(($fields['firstname'] ?? '') . ' ' . ($fields['lastname'] ?? ''));
+
+        return [
+            'success'      => true,
+            'contact_id'   => $contactId,
+            'contact_name' => $name ?: "Contact #{$contactId}",
+            'voc_profile'  => $profile,
+            'message'      => sprintf(
+                'VoC profile for %s: %s sentiment, %d topics identified.',
+                $name ?: "#{$contactId}",
+                $profile['sentiment'] ?? 'unknown',
+                count($profile['topics'] ?? [])
+            ),
+        ];
+    }
+
+    private function vocSummarizeTheme(array $args): array
+    {
+        $themeName = $args['theme_name'];
+
+        // Collect verbatims to filter by theme
+        $data = $this->vocEngine->collectFeedback(
+            source:   $args['source'] ?? 'all',
+            formIds:  $args['form_ids'] ?? [],
+            dateFrom: null,
+            dateTo:   null,
+            limit:    200,
+        );
+
+        if (empty($data['verbatims'])) {
+            return ['success' => false, 'error' => 'No verbatims found to summarize this theme.'];
+        }
+
+        $summary = $this->vocEngine->summarizeTheme($themeName, $data['verbatims']);
+
+        return [
+            'success'      => true,
+            'theme_name'   => $themeName,
+            'contact_ids'  => $data['contact_ids'],
+            'summary'      => $summary,
+            'message'      => sprintf(
+                'Theme "%s": %s severity — %s',
+                $themeName,
+                $summary['severity'] ?? 'unknown',
+                $summary['summary'] ?? 'see details'
+            ),
+        ];
+    }
+
+    private function vocCreateInsightSegment(array $args): array
+    {
+        $result = $this->vocEngine->createInsightSegment(
+            name:        $args['name'],
+            description: $args['description'] ?? '',
+            contactIds:  $args['contact_ids'],
+        );
+
+        return [
+            'success'    => true,
+            'segment'    => $result,
+            'message'    => sprintf(
+                'Created segment "%s" (ID #%d) with %d contacts. View at /s/segments/view/%d',
+                $args['name'],
+                $result['id'],
+                $result['contact_count'],
+                $result['id']
+            ),
+        ];
+    }
+
+    private function vocSuggestResponseCampaign(array $args): array
+    {
+        $theme     = $args['theme'];
+        $sentiment = $args['sentiment'];
+        $audience  = $args['audience'] ?? '';
+        $context   = $args['context'] ?? '';
+
+        $prompt = "You are a marketing automation strategist. Based on a Voice of Customer (VoC) insight, "
+            . "design a response campaign to address the identified theme.\n\n"
+            . "Theme: {$theme}\n"
+            . "Sentiment: {$sentiment}\n"
+            . ($audience ? "Target audience: {$audience}\n" : '')
+            . ($context ? "Additional context: {$context}\n" : '')
+            . "\nDesign a 3-5 email journey that addresses this theme. For each email:\n"
+            . "- Subject line\n- Timing (delay from previous)\n- Purpose/goal\n- Key messaging points\n- CTA\n\n"
+            . "Also provide:\n- Overall campaign name\n- Campaign goal\n- Recommended segment criteria\n- Success metrics\n\n"
+            . "Respond ONLY with valid JSON:\n"
+            . '{"campaign_name":"...","campaign_goal":"...","segment_criteria":"...","success_metrics":["..."],'
+            . '"emails":[{"step":1,"subject":"...","delay":"immediate|3 days|...","purpose":"...","key_messages":["..."],"cta":"..."}],'
+            . '"additional_recommendations":["..."]}';
+
+        $response = $this->mistralClient->complete([
+            ['role' => 'user', 'content' => $prompt],
+        ]);
+
+        $raw = $response['content'] ?? '{}';
+        if (preg_match('/\{.*\}/s', $raw, $m)) {
+            $raw = $m[0];
+        }
+        $campaign = json_decode($raw, true) ?? ['error' => 'Could not generate campaign plan.'];
+
+        return [
+            'success'       => true,
+            'theme'         => $theme,
+            'sentiment'     => $sentiment,
+            'campaign_plan' => $campaign,
+            'message'       => sprintf(
+                'Response campaign "%s" planned with %d emails for theme "%s".',
+                $campaign['campaign_name'] ?? 'Campaign',
+                count($campaign['emails'] ?? []),
+                $theme
+            ),
         ];
     }
 }

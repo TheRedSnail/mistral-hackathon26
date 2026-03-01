@@ -759,6 +759,129 @@ class ToolDefinitions
                     ],
                 ],
             ],
+
+            // ── Voice of Customer (VoC) Analytics ────────────────────────────────
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'voc_collect_feedback',
+                    'description' => 'Aggregate customer verbatims from forms, notes, DNC comments, and email engagement. '
+                        . 'All text is PII-redacted before returning. Use this as the first step in any VoC analysis workflow.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'source'   => ['type' => 'string',  'description' => 'Data source filter: "all" (default), "forms", "notes", "dnc", "email_engagement".'],
+                            'form_ids' => [
+                                'type'        => 'array',
+                                'items'       => ['type' => 'integer'],
+                                'description' => 'Specific form IDs to collect from (optional, default = all forms).',
+                            ],
+                            'date_from' => ['type' => 'string', 'description' => 'Start date (Y-m-d). Default: 90 days ago.'],
+                            'date_to'   => ['type' => 'string', 'description' => 'End date (Y-m-d). Default: today.'],
+                            'limit'     => ['type' => 'integer', 'description' => 'Max verbatims to return. Default 200.'],
+                        ],
+                        'required' => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'voc_analyze_themes',
+                    'description' => 'AI-powered topic extraction with per-theme sentiment on collected verbatims. '
+                        . 'Automatically calls voc_collect_feedback if no verbatims are provided. '
+                        . 'Returns themes with name, sentiment, intensity, count, representative quotes, and trend.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'source'   => ['type' => 'string',  'description' => 'Data source filter passed to collection: "all", "forms", "notes", "dnc", "email_engagement".'],
+                            'form_ids' => [
+                                'type'  => 'array',
+                                'items' => ['type' => 'integer'],
+                                'description' => 'Specific form IDs (optional).',
+                            ],
+                            'date_from' => ['type' => 'string', 'description' => 'Start date (Y-m-d).'],
+                            'date_to'   => ['type' => 'string', 'description' => 'End date (Y-m-d).'],
+                        ],
+                        'required' => [],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'voc_contact_voice',
+                    'description' => 'Deep VoC profile for a single contact — aggregates all sources (forms, notes, DNC, email engagement) '
+                        . 'and provides sentiment, topics, churn signals, key quotes, recommended action, and urgency.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'contact_id' => ['type' => 'integer', 'description' => 'The Mautic contact ID.'],
+                        ],
+                        'required' => ['contact_id'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'voc_summarize_theme',
+                    'description' => 'Detailed AI summary of a specific VoC theme — drill down into a topic discovered by voc_analyze_themes. '
+                        . 'Returns summary, representative quotes, trend, severity, and recommended action.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'theme_name' => ['type' => 'string', 'description' => 'The theme name to drill into (from voc_analyze_themes results).'],
+                            'source'     => ['type' => 'string', 'description' => 'Data source filter (optional, default "all").'],
+                            'form_ids'   => [
+                                'type'  => 'array',
+                                'items' => ['type' => 'integer'],
+                                'description' => 'Specific form IDs (optional).',
+                            ],
+                        ],
+                        'required' => ['theme_name'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'voc_create_insight_segment',
+                    'description' => 'Create a static Mautic segment from VoC insight — add specific contacts identified by VoC analysis '
+                        . 'to a new segment for targeted follow-up campaigns.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'name'        => ['type' => 'string', 'description' => 'Segment name (e.g. "VoC: Pricing Concerns").'],
+                            'description' => ['type' => 'string', 'description' => 'Description of the insight that created this segment.'],
+                            'contact_ids' => [
+                                'type'        => 'array',
+                                'items'       => ['type' => 'integer'],
+                                'description' => 'Contact IDs to add to the segment.',
+                            ],
+                        ],
+                        'required' => ['name', 'contact_ids'],
+                    ],
+                ],
+            ],
+            [
+                'type'     => 'function',
+                'function' => [
+                    'name'        => 'voc_suggest_response_campaign',
+                    'description' => 'Generate an AI-powered response campaign plan for a VoC theme. '
+                        . 'Returns a multi-email journey (3-5 steps) tailored to address the theme\'s sentiment and urgency.',
+                    'parameters'  => [
+                        'type'       => 'object',
+                        'properties' => [
+                            'theme'     => ['type' => 'string', 'description' => 'The theme to respond to (e.g. "Pricing Concerns").'],
+                            'sentiment' => ['type' => 'string', 'description' => 'Theme sentiment: "positive", "negative", "neutral", or "mixed".'],
+                            'audience'  => ['type' => 'string', 'description' => 'Target audience description (optional).'],
+                            'context'   => ['type' => 'string', 'description' => 'Additional context from the VoC analysis (optional).'],
+                        ],
+                        'required' => ['theme', 'sentiment'],
+                    ],
+                ],
+            ],
         ];
     }
 }
