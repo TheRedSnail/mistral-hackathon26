@@ -576,10 +576,13 @@ HTML;
             return ['success' => false, 'error' => "Email #{$args['id']} has no MJML content."];
         }
 
-        preg_match_all('/(<mj-image\b[^>]*?\/>)/i', $gjs->getCustomMjml(), $matches, PREG_OFFSET_CAPTURE);
+        // Match opening tag of mj-image in both formats:
+        //   self-closing:     <mj-image src="…" />
+        //   non-self-closing: <mj-image src="…">  (Mautic themes use this format)
+        preg_match_all('/<mj-image\b[^>]*?>/i', $gjs->getCustomMjml(), $matches, PREG_OFFSET_CAPTURE);
 
         $images = [];
-        foreach ($matches[1] as $idx => $match) {
+        foreach ($matches[0] as $idx => $match) {
             $tag = $match[0];
             $srcMatch = [];
             preg_match('/\bsrc=["\']([^"\']*)["\']/', $tag, $srcMatch);
@@ -609,14 +612,15 @@ HTML;
         }
 
         $mjml = $gjs->getCustomMjml();
-        preg_match_all('/(<mj-image\b[^>]*?\/>)/i', $mjml, $m, PREG_OFFSET_CAPTURE);
+        // Match opening tag only — handles both self-closing and non-self-closing formats
+        preg_match_all('/<mj-image\b[^>]*?>/i', $mjml, $m, PREG_OFFSET_CAPTURE);
 
-        if (!isset($m[1][$idx])) {
-            return ['success' => false, 'error' => "Image index {$idx} not found (email has " . count($m[1]) . " mj-image blocks)."];
+        if (!isset($m[0][$idx])) {
+            return ['success' => false, 'error' => "Image index {$idx} not found (email has " . count($m[0]) . " mj-image blocks)."];
         }
 
-        $tag    = $m[1][$idx][0];
-        $offset = $m[1][$idx][1];
+        $tag    = $m[0][$idx][0];
+        $offset = $m[0][$idx][1];
 
         // Replace existing src or inject it
         if (preg_match('/\bsrc=["\']/', $tag)) {
@@ -1325,10 +1329,8 @@ HTML;
 
         // 2. Save to Mautic media/files directory
         $uploadDir = (string) $this->parametersHelper->get('upload_dir');
-        $siteUrl   = rtrim((string) $this->parametersHelper->get('site_url'), '/');
         $filename  = 'ai_' . uniqid('', true) . '.' . $ext;
         $filePath  = $uploadDir . '/' . $filename;
-        $publicUrl = $siteUrl . '/media/files/' . $filename;
 
         if (file_put_contents($filePath, $imageData) === false) {
             return ['success' => false, 'error' => "Failed to write image to disk at {$filePath}."];
@@ -1343,7 +1345,7 @@ HTML;
         $asset->setPath($filename);
         $asset->setFileInfoFromFile();   // reads mime, extension, size from the file on disk
         $asset->setLanguage($args['language'] ?? 'en');
-        $asset->setDisallow(true);       // block search engines = yes
+        $asset->setDisallow(false);      // allow direct public access (required for email image rendering)
         $asset->setIsPublished(true);    // available for use = checked
 
         if (!empty($args['description'])) {
@@ -1359,6 +1361,10 @@ HTML;
         }
 
         $assetModel->saveEntity($asset);
+
+        // Use Mautic's own asset download route (/asset/{id}:{alias}) — the media/files/
+        // directory is blocked by .htaccess deny from all, so direct file URLs 403.
+        $publicUrl = $assetModel->generateUrl($asset, true);
 
         return [
             'success' => true,

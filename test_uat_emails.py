@@ -1,13 +1,14 @@
 """
-UAT — Emails (6 tests)
-Tests: list, themes, component retrieval, full creation workflow.
+UAT — Emails (7 tests)
+Tests: list, themes, component retrieval, full creation workflow,
+       GrapesJS builder text-block reading.
 """
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
 
 from playwright.sync_api import sync_playwright
 from test_helpers import (
-    safe_print, login, goto_ai, send_chat,
+    safe_print, login, goto_ai, send_chat, get_chips,
     get_activity_names, has_activity, extract_id, BASE
 )
 
@@ -123,9 +124,152 @@ def run():
         )
         page.screenshot(path='/tmp/uat_emails_06.png')
 
+        # TEST 7 — GrapesJS builder: select text block → AI reads correct text
+        safe_print('\n--- TEST 7: GrapesJS text-block reading ---')
+        # Always use the fixture email (75) which has real text content, not just tokens
+        gjs_email_id = str(FALLBACK_EMAIL_ID)
+        try:
+            # Navigate the iframe to the email edit page
+            page.evaluate(
+                f"document.getElementById('odradek-mautic-frame').src = "
+                f"'{BASE}/s/emails/edit/{gjs_email_id}'"
+            )
+            page.wait_for_timeout(3000)
+
+            # Wait for the email edit frame to appear
+            email_frame = None
+            for _ in range(20):
+                email_frame = next(
+                    (f for f in page.frames if f'emails/edit/{gjs_email_id}' in f.url),
+                    None
+                )
+                if email_frame:
+                    break
+                page.wait_for_timeout(300)
+
+            if not email_frame:
+                check('Email edit frame found', False, 'frame never appeared')
+            else:
+                email_frame.wait_for_load_state('networkidle')
+
+                # Open the GrapesJS builder
+                email_frame.click('#emailform_buttons_builder_toolbar')
+                page.wait_for_timeout(5000)   # give the builder time to fully render
+
+                # Find the GrapesJS canvas frame (about:blank with most HTML content)
+                canvas = None
+                canvas_len = 0
+                for _ in range(10):
+                    for f in page.frames:
+                        if f.url in ('about:blank', ''):
+                            try:
+                                html_len = len(f.inner_html('body'))
+                                if html_len > canvas_len:
+                                    canvas_len = html_len
+                                    canvas = f
+                            except Exception:
+                                pass
+                    if canvas and canvas_len > 500:
+                        break
+                    page.wait_for_timeout(500)
+
+                safe_print(f'  GrapesJS canvas found: {canvas is not None} ({canvas_len} chars)')
+                check('GrapesJS canvas found', canvas is not None, canvas_len)
+
+                if canvas:
+                    # Enumerate all [data-gjs-type] elements and their text
+                    all_gjs = canvas.eval_on_selector_all(
+                        '[data-gjs-type]',
+                        "els => els.map(e => ({type: e.getAttribute('data-gjs-type'), "
+                        "text: (e.innerText||'').trim().slice(0,300)}))"
+                    )
+                    safe_print(f'  Total GrapesJS components: {len(all_gjs)}')
+
+                    # Pick a text-bearing component — prefer real content over Mautic tokens
+                    text_comps = [
+                        c for c in all_gjs
+                        if 'text' in (c['type'] or '').lower() and c['text'].strip()
+                    ]
+                    # Prefer components whose text isn't a bare Mautic token
+                    real_comps = [
+                        c for c in text_comps
+                        if not c['text'].strip().startswith('{')
+                    ]
+                    safe_print(f'  Text components: {len(text_comps)} total, {len(real_comps)} with real content')
+                    for i, c in enumerate((real_comps or text_comps)[:3]):
+                        safe_print(f'    [{i}] type={c["type"]!r} text={c["text"][:60]!r}')
+
+                    check('Builder has text components', len(text_comps) > 0, len(all_gjs))
+
+                    if text_comps:
+                        target = (real_comps or text_comps)[0]
+                        target_type = target['type']
+                        target_text = target['text']   # actual DOM text (ground truth)
+                        safe_print(f'  Target component: type={target_type!r}')
+                        safe_print(f'  Target text (DOM ground truth): {target_text[:100]!r}')
+
+                        # Click the element in the canvas
+                        clicked = False
+                        for el in canvas.query_selector_all(f'[data-gjs-type="{target_type}"]'):
+                            try:
+                                inner = (el.inner_text() or '').strip()
+                                if inner and inner[:50] == target_text[:50]:
+                                    el.click()
+                                    clicked = True
+                                    break
+                            except Exception:
+                                pass
+                        if not clicked:
+                            # Fallback: click first element of that type
+                            el = canvas.query_selector(f'[data-gjs-type="{target_type}"]')
+                            if el:
+                                el.click()
+                                clicked = True
+
+                        page.wait_for_timeout(1000)
+                        safe_print(f'  Clicked component: {clicked}')
+
+                        # Check the context chip was created and shows the right text
+                        chips = get_chips(page)
+                        safe_print(f'  Context chips after click: {chips}')
+                        chip_ok = any(target_text[:15] in c for c in chips) if chips else False
+                        check('Chip shows component text after click', chip_ok,
+                              {'chips': chips, 'expected': target_text[:30]})
+
+                        # Diagnostic: read chip label vs DOM text
+                        chip_label = chips[0] if chips else ''
+                        safe_print(f'  Chip label: {chip_label!r}')
+                        safe_print(f'  DOM text:   {target_text[:60]!r}')
+
+                        # Ask the AI what the selected component says (read-only — no tool call expected)
+                        ai_reply = send_chat(
+                            page,
+                            'What is the text in the currently selected component? '
+                            'Quote it exactly without changing anything.',
+                            wait_ms=60000
+                        )
+                        safe_print(f'  AI reply: {ai_reply[:300]!r}')
+                        page.screenshot(path='/tmp/uat_emails_07.png')
+
+                        check('AI reply is non-empty', len(ai_reply.strip()) > 10, ai_reply[:50])
+                        # The AI should quote at least the first 20 chars of the component text
+                        snippet = target_text[:20].lower().strip()
+                        ai_has_text = snippet in ai_reply.lower() if snippet else False
+                        check(
+                            f'AI quotes correct text ({snippet!r})',
+                            ai_has_text,
+                            {'expected_in_reply': snippet, 'ai_reply': ai_reply[:150]}
+                        )
+
+        except Exception as exc:
+            import traceback
+            safe_print(f'  ERROR in TEST 7: {exc}')
+            safe_print(traceback.format_exc())
+            check('TEST 7 completed without error', False, str(exc))
+
         # ── Summary ────────────────────────────────────────────────────────
         safe_print(f'\n{"="*50}')
-        safe_print(f'Emails: {pass_count} passed, {fail_count} failed')
+        safe_print(f'Emails (7 tests): {pass_count} passed, {fail_count} failed')
         safe_print(f'{"="*50}')
 
         browser.close()
