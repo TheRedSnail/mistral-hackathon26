@@ -262,6 +262,9 @@ class ChatController extends CommonController
             'get_segment', 'update_segment' => '#' . ($args['id'] ?? '?'),
             'get_segment_filter_fields' => '',
             'navigate_mautic'           => $args['path'] ?? '',
+            'create_survey'             => $args['template'] ?? '',
+            'survey_analytics'          => '#' . ($args['form_id'] ?? '?'),
+            'list_survey_templates'     => '',
             default           => '',
         };
     }
@@ -363,6 +366,17 @@ class ChatController extends CommonController
                   . "After presenting themes, proactively suggest drilling into the most concerning theme "
                   . "and creating a segment for follow-up. ";
 
+        // Survey templates
+        $content .= "When the user wants to create a survey (NPS, CSAT, CES, or any feedback form), use create_survey with a template type. "
+                  . "Available templates: nps (Net Promoter Score), csat (Customer Satisfaction), ces (Customer Effort Score), "
+                  . "pmf (Product-Market Fit), onboarding (Onboarding Feedback), churn (Exit Survey), post_purchase (Post-Purchase). "
+                  . "Use create_survey for standard survey types; use create_form only for custom forms that don't fit any template. "
+                  . "After creating a survey, share the embed URL (/form/{id}) and explain how to add it to an email or landing page. "
+                  . "To analyze survey results, use survey_analytics with the form_id. "
+                  . "When presenting survey analytics, always show: the computed score, benchmark interpretation, "
+                  . "response count, breakdown, and AI interpretation. "
+                  . "If the user asks what surveys are available, use list_survey_templates. ";
+
         // ── Context injection with prompt-injection mitigations ─────────────
         // Strip control characters (keep newlines) and instruction-override patterns
         $sanitizeCtx = function (string $val, int $maxLen): string {
@@ -439,6 +453,8 @@ class ChatController extends CommonController
                 'create.*contact', 'add.*contact',
                 'voc.*analyz', 'voice.*customer', 'feedback.*theme', 'customer.*feedback',
                 'customer.*voice', 'verbatim', 'voc.*insight',
+                'create.*survey', 'build.*survey', 'nps.*survey', 'csat.*survey',
+                'survey.*template', 'listening.*post', 'feedback.*survey',
             ] as $pattern) {
                 if (preg_match('/' . $pattern . '/i', $text)) {
                     return true;

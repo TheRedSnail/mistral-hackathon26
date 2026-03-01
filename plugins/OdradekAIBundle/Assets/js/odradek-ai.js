@@ -836,6 +836,18 @@
         if (result.segment && result.segment.contact_count !== undefined) {
             return `Segment "${result.segment.name}" created with ${result.segment.contact_count} contacts`;
         }
+        // Survey analytics result
+        if (result.survey_type && result.metric) {
+            return `${result.survey_type.toUpperCase()}: ${result.metric.summary || 'See details'}`;
+        }
+        // Survey creation result
+        if (result.survey_type && result.form) {
+            return `${result.survey_type.toUpperCase()} survey "${result.form.name}" created (ID #${result.form.id})`;
+        }
+        // Survey template list
+        if (result.templates && !result.survey_type) {
+            return `${Object.keys(result.templates).length} survey templates available`;
+        }
         return JSON.stringify(result).slice(0, 80);
     }
 
@@ -921,6 +933,20 @@
             buildPrompt: (val) => val.trim()
                 ? `Analyze Voice of Customer themes from form "${val.trim()}"`
                 : 'Analyze Voice of Customer feedback across all sources — show themes, sentiment, and quotes'
+        },
+        survey: {
+            icon:        '📊',
+            label:       'Build Survey',
+            hint:        'Choose a survey type: NPS, CSAT, CES, Product-Market Fit, Onboarding, Churn/Exit, or Post-Purchase.',
+            placeholder: 'e.g. NPS survey for Acme Corp, CSAT for our support team…',
+            buildPrompt: (val) => `Create a VoC survey: ${val.trim()}`
+        },
+        surveyResults: {
+            icon:        '📈',
+            label:       'Survey Results',
+            hint:        'Enter the survey form name or ID to calculate the score and get insights.',
+            placeholder: 'Survey form name or ID…',
+            buildPrompt: (val) => `Analyze the survey results for form "${val.trim()}" and give me the score with interpretation`
         }
     };
 

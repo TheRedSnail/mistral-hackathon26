@@ -532,14 +532,18 @@ class VocEngine
                 continue;
             }
 
-            // Identify text-bearing fields
-            $textFieldAliases = [];
+            // Identify text-bearing and structured (survey) fields
+            $textFieldAliases       = [];
+            $structuredFieldAliases = [];
             foreach ($form->getFields() as $field) {
-                if (in_array($field->getType(), ['text', 'textarea', 'email', 'tel', 'url'], true)) {
+                $type = $field->getType();
+                if (in_array($type, ['text', 'textarea', 'email', 'tel', 'url'], true)) {
                     $textFieldAliases[] = $field->getAlias();
+                } elseif (in_array($type, ['radio', 'select', 'checkboxgrp', 'number'], true)) {
+                    $structuredFieldAliases[] = $field->getAlias();
                 }
             }
-            if (empty($textFieldAliases)) {
+            if (empty($textFieldAliases) && empty($structuredFieldAliases)) {
                 continue;
             }
 
@@ -565,6 +569,7 @@ class VocEngine
                     continue;
                 }
 
+                // Collect text values (existing behavior)
                 $textParts = [];
                 foreach ($textFieldAliases as $alias) {
                     $val = $results[$alias] ?? '';
@@ -572,7 +577,17 @@ class VocEngine
                         $textParts[] = $val;
                     }
                 }
-                if (empty($textParts)) {
+
+                // Collect structured values (radio/select/checkboxgrp/number — for surveys)
+                $structuredParts = [];
+                foreach ($structuredFieldAliases as $alias) {
+                    $val = $results[$alias] ?? '';
+                    if ($val !== '' && $val !== null) {
+                        $structuredParts[$alias] = $val;
+                    }
+                }
+
+                if (empty($textParts) && empty($structuredParts)) {
                     continue;
                 }
 
@@ -581,9 +596,15 @@ class VocEngine
                     $contactIds[] = $contactId;
                 }
 
-                $verbatims[] = [
+                $verbatim = [
                     'source'     => 'form_submission',
-                    'text'       => implode(' | ', $textParts),
+                    'text'       => !empty($textParts)
+                        ? implode(' | ', $textParts)
+                        : 'Survey response: ' . implode(', ', array_map(
+                            fn($k, $v) => "{$k}={$v}",
+                            array_keys($structuredParts),
+                            array_values($structuredParts),
+                        )),
                     'contact_id' => $contactId,
                     'date'       => $dateSubmitted->format('Y-m-d H:i:s'),
                     'metadata'   => [
@@ -591,6 +612,12 @@ class VocEngine
                         'form_name' => $form->getName(),
                     ],
                 ];
+
+                if (!empty($structuredParts)) {
+                    $verbatim['structured_responses'] = $structuredParts;
+                }
+
+                $verbatims[] = $verbatim;
             }
         }
 

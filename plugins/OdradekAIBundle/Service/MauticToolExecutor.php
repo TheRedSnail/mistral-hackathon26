@@ -89,6 +89,9 @@ class MauticToolExecutor
                 'voc_summarize_theme'           => $this->vocSummarizeTheme($args),
                 'voc_create_insight_segment'    => $this->vocCreateInsightSegment($args),
                 'voc_suggest_response_campaign' => $this->vocSuggestResponseCampaign($args),
+                'list_survey_templates'         => $this->listSurveyTemplates(),
+                'create_survey'                 => $this->createSurvey($args),
+                'survey_analytics'              => $this->surveyAnalytics($args),
                 default            => ['success' => false, 'error' => "Unknown tool: {$tool}"],
             };
         } catch (\Throwable $e) {
@@ -1870,5 +1873,413 @@ HTML;
                 $theme
             ),
         ];
+    }
+
+    // ── Survey Templates & Analytics ──────────────────────────────────────
+
+    /**
+     * List available VoC survey templates.
+     */
+    private function listSurveyTemplates(): array
+    {
+        return [
+            'success'   => true,
+            'templates' => SurveyTemplates::listTemplates(),
+            'message'   => 'Available survey templates: NPS, CSAT, CES, Product-Market Fit, Onboarding, Churn/Exit, Post-Purchase.',
+        ];
+    }
+
+    /**
+     * Create a VoC survey from a pre-built template.
+     */
+    private function createSurvey(array $args): array
+    {
+        $template = $args['template'] ?? '';
+
+        try {
+            $formArgs = SurveyTemplates::getTemplate(
+                template:       $template,
+                companyName:    $args['company_name']     ?? null,
+                productName:    $args['product_name']     ?? null,
+                customFollowUp: $args['custom_follow_up'] ?? null,
+            );
+        } catch (\InvalidArgumentException $e) {
+            return ['success' => false, 'error' => $e->getMessage()];
+        }
+
+        // Delegate to existing form creation
+        $result = $this->createForm($formArgs);
+        if (!($result['success'] ?? false)) {
+            return $result;
+        }
+
+        $scoring = SurveyTemplates::getScoringConfig($template);
+        $formId  = $result['form']['id'] ?? 0;
+
+        $result['survey_type'] = $template;
+        $result['scoring']     = $scoring;
+        $result['message']     = sprintf(
+            '%s survey "%s" created (ID #%d). Scoring: %s. Embed: /form/%d — use survey_analytics with form_id=%d to compute results after responses are collected.',
+            strtoupper($template),
+            $result['form']['name'] ?? 'Survey',
+            $formId,
+            $scoring['formula'] ?? $scoring['method'],
+            $formId,
+            $formId,
+        );
+
+        return $result;
+    }
+
+    /**
+     * Compute survey metrics from form responses.
+     */
+    private function surveyAnalytics(array $args): array
+    {
+        $formId = (int) ($args['form_id'] ?? 0);
+        if ($formId <= 0) {
+            return ['success' => false, 'error' => 'form_id is required.'];
+        }
+
+        $form = $this->formModel->getEntity($formId);
+        if (!$form) {
+            return ['success' => false, 'error' => "Form #{$formId} not found."];
+        }
+
+        // Detect survey type from field aliases
+        $fieldAliases = [];
+        foreach ($form->getFields() as $field) {
+            $fieldAliases[] = $field->getAlias();
+        }
+
+        $surveyType = $this->detectSurveyType($fieldAliases);
+        if (!$surveyType) {
+            return [
+                'success' => false,
+                'error'   => 'Could not detect survey type from field aliases. Ensure the form was created with create_survey.',
+            ];
+        }
+
+        $scoring = SurveyTemplates::getScoringConfig($surveyType);
+
+        // Collect submissions
+        $submissionModel = $this->modelFactory->getModel('form.submission');
+        try {
+            $submissions = $submissionModel->getRepository()->getEntities([
+                'form'  => $form,
+                'limit' => 1000,
+                'start' => 0,
+            ]);
+        } catch (\Throwable $e) {
+            return ['success' => false, 'error' => 'Failed to load submissions: ' . $e->getMessage()];
+        }
+
+        // Determine score field(s)
+        $scoreFields = isset($scoring['score_fields'])
+            ? $scoring['score_fields']
+            : [$scoring['score_field']];
+
+        $scores     = [];
+        $verbatims  = [];
+        $contactIds = [];
+
+        foreach ($submissions as $submission) {
+            $results       = $submission->getResults();
+            $dateSubmitted = $submission->getDateSubmitted();
+
+            // Date filtering
+            if (!empty($args['date_from'])) {
+                try {
+                    if ($dateSubmitted < new \DateTime($args['date_from'])) {
+                        continue;
+                    }
+                } catch (\Throwable) {}
+            }
+            if (!empty($args['date_to'])) {
+                try {
+                    if ($dateSubmitted > new \DateTime($args['date_to'])) {
+                        continue;
+                    }
+                } catch (\Throwable) {}
+            }
+
+            // Collect score(s)
+            if (isset($scoring['score_fields'])) {
+                // Multi-field (post_purchase)
+                $row = [];
+                foreach ($scoring['score_fields'] as $sf) {
+                    $row[$sf] = $results[$sf] ?? null;
+                }
+                $scores[] = $row;
+            } else {
+                $scores[] = $results[$scoring['score_field']] ?? null;
+            }
+
+            // Collect text verbatims from follow-up fields
+            foreach ($results as $alias => $val) {
+                if (!in_array($alias, $scoreFields, true)
+                    && is_string($val)
+                    && mb_strlen(trim($val)) > 3
+                    && !is_numeric($val)
+                ) {
+                    $verbatims[] = $val;
+                }
+            }
+
+            $cid = $submission->getLead()?->getId();
+            if ($cid) {
+                $contactIds[] = $cid;
+            }
+        }
+
+        // Compute metric
+        $metric = $this->calculateSurveyMetric($surveyType, $scores, $scoring);
+
+        // AI interpretation
+        $interpretation = $this->interpretSurveyResults($surveyType, $metric, $verbatims);
+
+        return [
+            'success'         => true,
+            'form_id'         => $formId,
+            'form_name'       => $form->getName(),
+            'survey_type'     => $surveyType,
+            'response_count'  => count($scores),
+            'metric'          => $metric,
+            'verbatim_count'  => count($verbatims),
+            'contact_ids'     => array_values(array_unique($contactIds)),
+            'interpretation'  => $interpretation,
+            'message'         => sprintf(
+                '%s survey "%s": %s (based on %d responses)',
+                strtoupper($surveyType),
+                $form->getName(),
+                $metric['summary'] ?? 'See details',
+                count($scores),
+            ),
+        ];
+    }
+
+    /**
+     * Detect survey type from field aliases.
+     */
+    private function detectSurveyType(array $aliases): ?string
+    {
+        $aliasSet = array_flip($aliases);
+
+        if (isset($aliasSet['nps_score']))              return 'nps';
+        if (isset($aliasSet['csat_score']))             return 'csat';
+        if (isset($aliasSet['ces_score']))              return 'ces';
+        if (isset($aliasSet['pmf_score']))              return 'pmf';
+        if (isset($aliasSet['onboarding_rating']))      return 'onboarding';
+        if (isset($aliasSet['churn_reason']))           return 'churn';
+        if (isset($aliasSet['purchase_satisfaction']))   return 'post_purchase';
+
+        return null;
+    }
+
+    /**
+     * Calculate the survey metric based on scoring method.
+     */
+    private function calculateSurveyMetric(string $type, array $scores, array $scoring): array
+    {
+        $valid = array_filter($scores, fn($s) => $s !== null);
+        $count = count($valid);
+
+        if ($count === 0) {
+            return ['score' => null, 'summary' => 'No responses yet', 'breakdown' => []];
+        }
+
+        return match ($scoring['method']) {
+            'nps'                       => $this->calculateNps($valid),
+            'top_box_percentage'        => $this->calculateTopBox($valid, $scoring['top_box']),
+            'average'                   => $this->calculateAverage($valid, $scoring['scale_max']),
+            'single_option_percentage'  => $this->calculateSingleOption($valid, $scoring['target_value']),
+            'frequency_distribution'    => $this->calculateFrequencyDist($valid),
+            'multi_average'             => $this->calculateMultiAverage($valid, $scoring),
+            default                     => ['score' => null, 'summary' => 'Unknown scoring method'],
+        };
+    }
+
+    private function calculateNps(array $scores): array
+    {
+        $promoters = $passives = $detractors = 0;
+        foreach ($scores as $s) {
+            $v = (int) $s;
+            if ($v >= 9) {
+                $promoters++;
+            } elseif ($v >= 7) {
+                $passives++;
+            } else {
+                $detractors++;
+            }
+        }
+        $total    = count($scores);
+        $npsScore = (int) round((($promoters - $detractors) / $total) * 100);
+
+        return [
+            'score'      => $npsScore,
+            'summary'    => "NPS: {$npsScore} ({$total} responses)",
+            'breakdown'  => [
+                'promoters'    => $promoters,
+                'promoter_pct' => round($promoters / $total * 100, 1),
+                'passives'     => $passives,
+                'passive_pct'  => round($passives / $total * 100, 1),
+                'detractors'    => $detractors,
+                'detractor_pct' => round($detractors / $total * 100, 1),
+            ],
+            'benchmarks' => ['excellent' => '>70', 'good' => '50-70', 'ok' => '0-50', 'poor' => '<0'],
+        ];
+    }
+
+    private function calculateTopBox(array $scores, array $topBox): array
+    {
+        $topCount = 0;
+        foreach ($scores as $s) {
+            if (in_array((int) $s, $topBox, true)) {
+                $topCount++;
+            }
+        }
+        $total = count($scores);
+        $pct   = round(($topCount / $total) * 100, 1);
+
+        return [
+            'score'      => $pct,
+            'summary'    => "CSAT: {$pct}% ({$topCount}/{$total} gave 4 or 5)",
+            'breakdown'  => $this->buildDistribution($scores, 1, 5),
+            'benchmarks' => ['excellent' => '>90%', 'good' => '75-90%', 'average' => '50-75%', 'poor' => '<50%'],
+        ];
+    }
+
+    private function calculateAverage(array $scores, int $max): array
+    {
+        $sum = array_sum(array_map('intval', $scores));
+        $avg = round($sum / count($scores), 2);
+
+        return [
+            'score'     => $avg,
+            'summary'   => "Average: {$avg}/{$max} (" . count($scores) . ' responses)',
+            'breakdown' => $this->buildDistribution($scores, 1, $max),
+        ];
+    }
+
+    private function calculateSingleOption(array $scores, string $targetValue): array
+    {
+        $targetCount = 0;
+        $dist        = [];
+        foreach ($scores as $s) {
+            $v        = (string) $s;
+            $dist[$v] = ($dist[$v] ?? 0) + 1;
+            if ($v === $targetValue) {
+                $targetCount++;
+            }
+        }
+        $total = count($scores);
+        $pct   = round(($targetCount / $total) * 100, 1);
+
+        return [
+            'score'      => $pct,
+            'summary'    => "PMF: {$pct}% \"Very Disappointed\" ({$total} responses)",
+            'breakdown'  => $dist,
+            'benchmarks' => ['strong_pmf' => '>40%', 'promising' => '25-40%', 'weak' => '<25%'],
+        ];
+    }
+
+    private function calculateFrequencyDist(array $scores): array
+    {
+        $dist = [];
+        foreach ($scores as $s) {
+            // Checkboxgrp values may be comma- or pipe-separated
+            $options = is_string($s) ? preg_split('/[,|]/', $s) : [$s];
+            foreach ($options as $opt) {
+                $opt = trim((string) $opt);
+                if ($opt !== '') {
+                    $dist[$opt] = ($dist[$opt] ?? 0) + 1;
+                }
+            }
+        }
+        arsort($dist);
+
+        $top = !empty($dist) ? array_key_first($dist) : 'N/A';
+
+        return [
+            'score'     => null,
+            'summary'   => "Top reason: \"{$top}\" (" . ($dist[$top] ?? 0) . ' mentions, ' . count($scores) . ' responses)',
+            'breakdown' => $dist,
+        ];
+    }
+
+    private function calculateMultiAverage(array $scores, array $scoring): array
+    {
+        $fieldAverages = [];
+        foreach ($scoring['score_fields'] as $sf) {
+            $vals = array_filter(
+                array_column($scores, $sf),
+                fn($v) => $v !== null
+            );
+            $fieldAverages[$sf] = count($vals) > 0
+                ? round(array_sum(array_map('intval', $vals)) / count($vals), 2)
+                : null;
+        }
+
+        $nonNull    = array_filter($fieldAverages, fn($v) => $v !== null);
+        $overallAvg = count($nonNull) > 0
+            ? round(array_sum($nonNull) / count($nonNull), 2)
+            : null;
+
+        $scaleMax = $scoring['scale_max'] ?? 5;
+
+        return [
+            'score'     => $overallAvg,
+            'summary'   => "Overall: {$overallAvg}/{$scaleMax} (" . count($scores) . ' responses)',
+            'breakdown' => $fieldAverages,
+        ];
+    }
+
+    /**
+     * Build a value distribution histogram.
+     */
+    private function buildDistribution(array $scores, int $min, int $max): array
+    {
+        $dist = array_fill($min, $max - $min + 1, 0);
+        foreach ($scores as $s) {
+            $v = (int) $s;
+            if (isset($dist[$v])) {
+                $dist[$v]++;
+            }
+        }
+        return $dist;
+    }
+
+    /**
+     * AI-powered interpretation of survey results.
+     */
+    private function interpretSurveyResults(string $type, array $metric, array $verbatims): array
+    {
+        $sampleVerbatims = array_slice($verbatims, 0, 20);
+
+        $prompt = "You are a VoC analytics expert. Interpret these survey results concisely.\n\n"
+            . "Survey type: {$type}\n"
+            . "Score/metric: " . json_encode($metric, JSON_UNESCAPED_UNICODE) . "\n"
+            . (!empty($sampleVerbatims)
+                ? "Sample verbatims:\n" . json_encode($sampleVerbatims, JSON_UNESCAPED_UNICODE) . "\n\n"
+                : "\n")
+            . "Respond ONLY with valid JSON:\n"
+            . '{"interpretation":"2-3 sentence plain-English summary of what this score means",'
+            . '"key_insight":"the single most important takeaway",'
+            . '"recommended_action":"what to do next based on these results",'
+            . '"urgency":"low|medium|high"}';
+
+        try {
+            $response = $this->mistralClient->complete([
+                ['role' => 'user', 'content' => $prompt],
+            ]);
+
+            $raw = $response['content'] ?? '{}';
+            if (preg_match('/\{.*\}/s', $raw, $m)) {
+                $raw = $m[0];
+            }
+            return json_decode($raw, true) ?? ['interpretation' => 'Could not generate interpretation.'];
+        } catch (\Throwable) {
+            return ['interpretation' => 'AI interpretation unavailable.'];
+        }
     }
 }
